@@ -25,6 +25,7 @@ never connect to them. This one talks to the TV the way the TV actually answers.
 | **Volume** | Absolute level, up/down, mute |
 | **Sources** | TV, AV, HDMI1–3 — read live from the TV, not hard-coded |
 | **Apps** | Netflix, YouTube, Plex, browser, Screen Mirroring, and anything else installed |
+| **Play media** | Launch an app, open a URL, or tune a channel by number |
 | **Remote** | Every key, via a `remote` entity — arbitrary keys accepted |
 | **Raw access** | Publish any MQTT message to the TV |
 | **State** | Push. The TV broadcasts app, input and volume changes as they happen |
@@ -61,6 +62,45 @@ The TV must be **switched on** during setup; the connection is verified before t
 entry is created, so you never end up with a silently dead entity.
 
 The MAC address field is optional and only used for Wake-on-LAN.
+
+## Casting and `play_media`
+
+**These TVs do not speak Google Cast.** VIDAA uses Anyview Cast (Miracast) and, on
+newer sets, AirPlay — neither of which Home Assistant can send to. HA's `cast`
+integration will never discover a VIDAA TV. What this integration offers instead is
+app launching, which covers most of what people actually want from "cast this":
+
+```yaml
+# Launch an installed app, by name or by its internal url
+action: media_player.play_media
+target: { entity_id: media_player.living_room_tv }
+data:
+  media_content_type: app
+  media_content_id: Netflix
+
+# Open a web page in the TV browser
+data:
+  media_content_type: url
+  media_content_id: https://example.com
+
+# Tune a channel by number (keyed in like the physical remote)
+data:
+  media_content_type: channel
+  media_content_id: "104"
+```
+
+For real screen mirroring, select the **Screen Mirroring** source to put the TV into
+Miracast mode, then cast from your phone:
+
+```yaml
+action: media_player.select_source
+target: { entity_id: media_player.living_room_tv }
+data: { source: Screen Mirroring }
+```
+
+If your TV exposes a DLNA renderer, Home Assistant's built-in `dlna_dmr`
+integration can push media to it directly — no custom code needed. Worth checking
+before reaching for anything more complicated.
 
 ## Services
 

@@ -149,12 +149,16 @@ class VidaaConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
         try:
             await self.hass.async_add_executor_job(test_connection, host, port)
-        except VidaaAuthError:
+        except VidaaAuthError as err:
+            _LOGGER.warning("VIDAA TV at %s:%s rejected the credentials: %s", host, port, err)
             if errors is None:
                 return self.async_abort(reason="invalid_auth")
             errors["base"] = "invalid_auth"
             return None
-        except VidaaError:
+        except VidaaError as err:
+            # Without this the UI only ever says "cannot connect", which hides
+            # the difference between a firewall, a wrong IP and a sleeping TV.
+            _LOGGER.warning("Cannot reach VIDAA TV at %s:%s: %s", host, port, err)
             if errors is None:
                 return self.async_abort(reason="cannot_connect")
             errors["base"] = "cannot_connect"

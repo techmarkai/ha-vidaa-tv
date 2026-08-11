@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
 from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
+    MediaType,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -28,7 +33,12 @@ SUPPORT = (
     | MediaPlayerEntityFeature.STOP
     | MediaPlayerEntityFeature.NEXT_TRACK
     | MediaPlayerEntityFeature.PREVIOUS_TRACK
+    | MediaPlayerEntityFeature.PLAY_MEDIA
 )
+
+# Delay between digit presses when tuning a channel; the TV drops keys sent
+# back to back.
+DIGIT_DELAY = 0.3
 
 
 async def async_setup_entry(
@@ -133,14 +143,50 @@ class VidaaMediaPlayer(MediaPlayerEntity):
         await self.hass.async_add_executor_job(self._tv.send_key, "KEY_BACKS")
 
     async def async_select_source(self, source: str) -> None:
-        for src in self._tv.sources:
-            if src.get("sourcename") == source:
-                await self.hass.async_add_executor_job(
-                    self._tv.select_source, src["sourceid"]
+        if src := self._tv.find_source(source):
+            await self.hass.async_add_executor_job(self._tv.select_source, src["sourceid"])
+            return
+        if app := self._tv.find_app(source):
+            await self.hass.async_add_executor_job(self._tv.launch_app, app)
+            return
+        raise ServiceValidationError(f"Unknown source: {source}")
+
+    async def async_play_media(
+        self, media_type: str, media_id: str, **kwargs: Any
+    ) -> None:
+        """Launch an app, open a URL, or tune a channel.
+
+        This is app launching rather than true casting — VIDAA sets speak no
+        Google Cast, so there is no stream to hand over.
+        """
+        kind = str(media_type).lower().removeprefix("vidaa_tv/")
+
+        if kind in (MediaType.APP, "app", "application"):
+            app = self._tv.find_app(media_id)
+            if app is None:
+                known = ", ".join(a.get("name", "?") for a in self._tv.apps)
+                raise ServiceValidationError(
+                    f"Unknown app '{media_id}'. Installed apps: {known}"
                 )
-                return
-        for app in self._tv.apps:
-            if app.get("name") == source:
-                await self.hass.async_add_executor_job(self._tv.launch_app, app)
-                return
-        raise ValueError(f"Unknown source: {source}")
+            await self.hass.async_add_executor_job(self._tv.launch_app, app)
+            return
+
+        if kind in (MediaType.URL, "url", "web"):
+            await self.hass.async_add_executor_job(self._tv.open_url, media_id)
+            return
+
+        if kind in (MediaType.CHANNEL, "channel"):
+            digits = str(media_id).strip()
+            if not digits.isdigit():
+                raise ServiceValidationError(f"Channel must be numeric, got '{media_id}'")
+            # No verified "tune to channel" action exists, so key in the number
+            # the way the physical remote does.
+            for digit in digits:
+                await self.hass.async_add_executor_job(self._tv.send_key, f"KEY_{digit}")
+                await asyncio.sleep(DIGIT_DELAY)
+            await self.hass.async_add_executor_job(self._tv.send_key, "KEY_OK")
+            return
+
+        raise ServiceValidationError(
+            f"Unsupported media type '{media_type}'. Use app, url or channel."
+        )

@@ -183,6 +183,32 @@ class VidaaTV:
     def _topic(self, service: str, action: str) -> str:
         return f"/remoteapp/tv/{service}/{CLIENT_ID}/actions/{action}"
 
+    def find_app(self, wanted: str) -> dict | None:
+        """Match an app by display name or url, case-insensitively."""
+        target = wanted.strip().lower()
+        for app in self.apps:
+            if target in (
+                str(app.get("name", "")).lower(),
+                str(app.get("url", "")).lower(),
+            ):
+                return app
+        return None
+
+    def find_source(self, wanted: str) -> dict | None:
+        """Match an input by source name or display name."""
+        target = wanted.strip().lower()
+        for source in self.sources:
+            if target in (
+                str(source.get("sourcename", "")).lower(),
+                str(source.get("displayname", "")).lower(),
+            ):
+                return source
+        return None
+
+    def open_url(self, url: str) -> None:
+        """Open a web address in the TV browser. urlType 36 is the web-app type."""
+        self.launch_app({"name": url, "url": url, "urlType": 36, "storeType": 0})
+
     def publish_raw(self, topic: str, payload: str = "") -> None:
         """Escape hatch: publish any topic, for protocol bits not modelled here."""
         _LOGGER.debug("Publishing raw to %s: %s", topic, payload)

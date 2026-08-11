@@ -4,6 +4,7 @@ Loads client.py directly so Home Assistant does not need to be installed.
 """
 
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -93,6 +94,16 @@ def main():
     tv.connected = False
     assert not tv.is_on
 
+    # App and source lookup: by name or url, case-insensitive, no false hits.
+    assert tv.find_app("Netflix")["url"] == "netflix"
+    assert tv.find_app("netflix")["name"] == "Netflix"
+    assert tv.find_app("NETFLIX")["name"] == "Netflix"
+    assert tv.find_app("  netflix  ")["name"] == "Netflix"
+    assert tv.find_app("Disney+") is None
+    assert tv.find_source("HDMI1")["sourceid"] == "4"
+    assert tv.find_source("hdmi1")["sourceid"] == "4"
+    assert tv.find_source("HDMI9") is None
+
     # Topic shape must match what the TV actually answers on.
     assert tv._topic("remote_service", "sendkey") == \
         "/remoteapp/tv/remote_service/00:11:22:33:44:55$normal/actions/sendkey"
@@ -104,6 +115,16 @@ def main():
     tv.set_volume(-10)
     tv.set_volume(47)
     assert [p for _, p in sent] == ["100", "0", "47"], sent
+
+    # open_url must go out as a browser-type app launch.
+    sent.clear()
+    tv.open_url("https://example.com")
+    topic, payload = sent[0]
+    assert topic.endswith("/actions/launchapp"), topic
+    assert json.loads(payload) == {
+        "name": "https://example.com", "url": "https://example.com",
+        "urlType": 36, "storeType": 0,
+    }, payload
 
     print("all checks passed")
 
