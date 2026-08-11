@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 
 import voluptuous as vol
 
@@ -13,21 +12,14 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 
-from .client import VidaaError, VidaaTV, test_connection
+from .client import VidaaError, VidaaTV
 from .const import CONF_MAC, DEFAULT_PORT, DOMAIN, SERVICES
-
-_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.MEDIA_PLAYER, Platform.REMOTE]
 
 ATTR_ENTRY_ID = "entry_id"
 
-SEND_KEY_SCHEMA = vol.Schema(
-    {
-        vol.Required("key"): cv.string,
-        vol.Optional(ATTR_ENTRY_ID): cv.string,
-    }
-)
+SERVICE_NAMES = ("publish", "send_text", "refresh")
 
 SEND_TEXT_SCHEMA = vol.Schema(
     {
@@ -52,15 +44,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data[CONF_HOST]
     port = entry.data.get(CONF_PORT, DEFAULT_PORT)
 
-    # Fail fast with a clear reason rather than sitting in a reconnect loop —
-    # across subnets the usual cause is a firewall, not the TV.
+    # async_start verifies the CONNACK on the connection it already opens, so a
+    # firewall or a sleeping TV fails here with a reason instead of sitting in a
+    # silent reconnect loop.
+    tv = VidaaTV(hass, host, port, entry.data.get(CONF_MAC))
     try:
-        await hass.async_add_executor_job(test_connection, host, port)
+        await tv.async_start()
     except VidaaError as err:
         raise ConfigEntryNotReady(f"Cannot reach VIDAA TV at {host}:{port}: {err}") from err
-
-    tv = VidaaTV(hass, host, port, entry.data.get(CONF_MAC))
-    await tv.async_start()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = tv
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -75,14 +66,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         tv = hass.data[DOMAIN].pop(entry.entry_id)
         await tv.async_stop()
         if not hass.data[DOMAIN]:
-            for name in ("send_key", "publish", "send_text", "refresh"):
+            for name in SERVICE_NAMES:
                 hass.services.async_remove(DOMAIN, name)
     return unloaded
 
 
 def _async_register_services(hass: HomeAssistant) -> None:
-    """Register the raw-protocol services once."""
-    if hass.services.has_service(DOMAIN, "send_key"):
+    """Register the raw-protocol services once.
+
+    Key sending is deliberately not a service here — remote.send_command on the
+    remote entity is the Home Assistant native way, and supports targeting,
+    repeats and delays for free.
+    """
+    if hass.services.has_service(DOMAIN, "publish"):
         return
 
     def _resolve(call: ServiceCall) -> VidaaTV:
@@ -97,13 +93,6 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 "More than one VIDAA TV is configured; pass entry_id to choose one."
             )
         return next(iter(entries.values()))
-
-    async def _send_key(call: ServiceCall) -> None:
-        tv = _resolve(call)
-        key = call.data["key"].strip().upper()
-        if not key.startswith("KEY_"):
-            key = f"KEY_{key}"
-        await hass.async_add_executor_job(tv.send_key, key)
 
     async def _publish(call: ServiceCall) -> None:
         tv = _resolve(call)
@@ -128,7 +117,6 @@ def _async_register_services(hass: HomeAssistant) -> None:
         tv = _resolve(call)
         await hass.async_add_executor_job(tv.send_text, call.data["text"])
 
-    hass.services.async_register(DOMAIN, "send_key", _send_key, SEND_KEY_SCHEMA)
     hass.services.async_register(DOMAIN, "publish", _publish, PUBLISH_SCHEMA)
     hass.services.async_register(DOMAIN, "send_text", _send_text, SEND_TEXT_SCHEMA)
     hass.services.async_register(

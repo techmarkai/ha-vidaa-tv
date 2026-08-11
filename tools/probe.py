@@ -8,6 +8,7 @@ yet. Nothing here changes a setting; the only visible effect is that the TV may
 briefly react to a query.
 """
 
+import contextlib
 import json
 import ssl
 import sys
@@ -69,10 +70,8 @@ def connect(host):
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            try:
+            with contextlib.suppress(ssl.SSLError):
                 ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
-            except ssl.SSLError:
-                pass
             client.tls_set_context(ctx)
         client.on_connect, client.on_message = on_connect, on_message
         try:

@@ -66,7 +66,10 @@ class VidaaMediaPlayer(MediaPlayerEntity):
             identifiers={(DOMAIN, self._attr_unique_id)},
             name=entry.title,
             manufacturer="VIDAA",
-            model="Smart TV",
+            # refresh() runs on connect, so the real model is usually known by
+            # the time entities are added.
+            model=tv.device_info.get("model") or "Smart TV",
+            sw_version=tv.device_info.get("firmware") or tv.device_info.get("version"),
         )
 
     async def async_added_to_hass(self) -> None:
@@ -76,12 +79,11 @@ class VidaaMediaPlayer(MediaPlayerEntity):
 
     @property
     def available(self) -> bool:
-        return self._tv.available
+        return self._tv.connected
 
     @property
     def state(self) -> MediaPlayerState:
-        if not self._tv.connected:
-            return MediaPlayerState.OFF
+        # is_on already requires a live connection.
         return MediaPlayerState.ON if self._tv.is_on else MediaPlayerState.OFF
 
     @property
@@ -125,7 +127,8 @@ class VidaaMediaPlayer(MediaPlayerEntity):
         await self.hass.async_add_executor_job(self._tv.send_key, "KEY_VOLUMEDOWN")
 
     async def async_mute_volume(self, mute: bool) -> None:
-        # The TV only toggles; it never reports mute back, so we track it here.
+        # The TV only offers a toggle. Assume it landed; if this firmware does
+        # broadcast mute, the client will correct us on the next message.
         await self.hass.async_add_executor_job(self._tv.send_key, "KEY_MUTE")
         self._tv.muted = mute
         self.async_write_ha_state()
@@ -162,7 +165,7 @@ class VidaaMediaPlayer(MediaPlayerEntity):
         This is app launching rather than true casting — VIDAA sets speak no
         Google Cast, so there is no stream to hand over.
         """
-        kind = str(media_type).lower().removeprefix("vidaa_tv/")
+        kind = str(media_type).lower()
 
         if kind in (MediaType.APP, "app", "application"):
             app = self._tv.find_app(media_id)
@@ -248,7 +251,6 @@ class VidaaMediaPlayer(MediaPlayerEntity):
             can_play=False,
             can_expand=True,
             children=children or [],
-            children_media_class=MediaClass.APP if children else None,
         )
 
     @staticmethod

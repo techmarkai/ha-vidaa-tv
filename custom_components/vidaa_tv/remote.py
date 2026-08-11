@@ -42,7 +42,7 @@ class VidaaRemote(RemoteEntity):
 
     @property
     def available(self) -> bool:
-        return self._tv.available
+        return self._tv.connected
 
     @property
     def is_on(self) -> bool:
@@ -62,13 +62,8 @@ class VidaaRemote(RemoteEntity):
         if delay is None:
             delay = DEFAULT_DELAY
 
+        # send_key normalises "mute" into "KEY_MUTE" for every caller.
         for _ in range(repeats):
             for cmd in command:
-                key = cmd.strip()
-                # Accept "mute" as well as "KEY_MUTE" — the TV only takes the latter.
-                if not key.upper().startswith("KEY_"):
-                    key = f"KEY_{key.upper()}"
-                else:
-                    key = key.upper()
-                await self.hass.async_add_executor_job(self._tv.send_key, key)
+                await self.hass.async_add_executor_job(self._tv.send_key, cmd)
                 await asyncio.sleep(delay)

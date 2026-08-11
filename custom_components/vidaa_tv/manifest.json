@@ -1,7 +1,7 @@
 {
   "domain": "vidaa_tv",
   "name": "VIDAA TV (Hisense / Toshiba)",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "config_flow": true,
   "documentation": "https://github.com/techmarkai/ha-vidaa-tv",
   "issue_tracker": "https://github.com/techmarkai/ha-vidaa-tv/issues",
@@ -12,10 +12,6 @@
   "dependencies": ["network"],
   "dhcp": [
     { "macaddress": "10C753*" },
-    { "macaddress": "0004E2*" },
-    { "macaddress": "3CE9F7*" },
-    { "macaddress": "84E0F4*" },
-    { "macaddress": "C4AB25*" },
     { "hostname": "hisense*" },
     { "hostname": "vidaa*" },
     { "hostname": "toshiba*" }

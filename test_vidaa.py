@@ -153,6 +153,14 @@ def main():
     tv.set_volume(47)
     assert [p for _, p in sent] == ["100", "0", "47"], sent
 
+    # send_key normalises for every caller, so remote.py and the services do
+    # not each need their own copy of this.
+    sent.clear()
+    for raw in ("KEY_MUTE", "mute", " Mute ", "key_mute"):
+        tv.send_key(raw)
+    assert [p for _, p in sent] == ["KEY_MUTE"] * 4, sent
+    assert sent[0][0].endswith("/remote_service/00:11:22:33:44:55$normal/actions/sendkey")
+
     # open_url must go out as a browser-type app launch.
     sent.clear()
     tv.open_url("https://example.com")

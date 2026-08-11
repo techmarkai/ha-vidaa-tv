@@ -36,14 +36,6 @@
     }
   },
   "services": {
-    "send_key": {
-      "name": "Send key",
-      "description": "Send any remote key to the TV.",
-      "fields": {
-        "key": { "name": "Key", "description": "Key name, with or without the KEY_ prefix." },
-        "entry_id": { "name": "Entry ID", "description": "Only needed when more than one TV is configured." }
-      }
-    },
     "publish": {
       "name": "Publish raw MQTT",
       "description": "Publish any message to the TV's MQTT broker.",

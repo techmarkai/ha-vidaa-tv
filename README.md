@@ -107,20 +107,12 @@ before reaching for anything more complicated.
 
 ## Services
 
-### `vidaa_tv.send_key`
-
-Any remote key. The `KEY_` prefix is optional, and unknown keys are silently
-ignored by the TV, so experimenting is safe.
-
-```yaml
-action: vidaa_tv.send_key
-data:
-  key: KEY_SUBTITLE
-```
-
 ### `remote.send_command`
 
-The same thing through the standard remote entity, with repeats and delays:
+Sending keys uses the standard Home Assistant remote entity — no integration
+specific service. You get targeting, repeats and delays for free. The `KEY_`
+prefix is optional, and the TV silently ignores keys it does not implement, so
+experimenting is safe.
 
 ```yaml
 action: remote.send_command
@@ -133,6 +125,17 @@ data:
     - KEY_OK
   delay_secs: 0.5
 ```
+
+Keys reported by VIDAA remotes. This is a starting point, **not** a whitelist —
+any string is passed through, so unlisted keys still work:
+
+`KEY_POWER` `KEY_UP` `KEY_DOWN` `KEY_LEFT` `KEY_RIGHT` `KEY_OK` `KEY_BACK`
+`KEY_RETURNS` `KEY_HOME` `KEY_MENU` `KEY_EXIT` `KEY_VOLUMEUP` `KEY_VOLUMEDOWN`
+`KEY_MUTE` `KEY_CHANNELUP` `KEY_CHANNELDOWN` `KEY_0`–`KEY_9` `KEY_RED`
+`KEY_GREEN` `KEY_YELLOW` `KEY_BLUE` `KEY_PLAY` `KEY_PAUSE` `KEY_STOP`
+`KEY_FORWARDS` `KEY_BACKS` `KEY_INPUT` `KEY_SOURCE` `KEY_TV` `KEY_INFO`
+`KEY_GUIDE` `KEY_EPG` `KEY_SUBTITLE` `KEY_AUDIO` `KEY_FAV` `KEY_SETTINGS`
+`KEY_PICTURE` `KEY_SOUND` `KEY_SLEEP` `KEY_NETFLIX` `KEY_YOUTUBE`
 
 ### `vidaa_tv.publish`
 
@@ -175,6 +178,26 @@ It tries both plain and TLS transports, fires every action worth trying, and
 prints which ones replied. Nothing it sends changes a setting. If your TV
 answers something this integration does not model yet, that output is exactly
 what to attach to an issue.
+
+## Upgrading from 1.x
+
+`vidaa_tv.send_key` was removed in 2.0.0 — it duplicated `remote.send_command`,
+which is the Home Assistant native way and supports targeting, repeats and
+delays. Replace:
+
+```yaml
+# before
+action: vidaa_tv.send_key
+data: { key: KEY_SUBTITLE }
+
+# after
+action: remote.send_command
+target: { entity_id: remote.living_room_tv_remote }
+data: { command: KEY_SUBTITLE }
+```
+
+Nothing else changed. Entities, unique IDs and config entries are untouched, so
+no reconfiguration is needed.
 
 ## Caveats
 

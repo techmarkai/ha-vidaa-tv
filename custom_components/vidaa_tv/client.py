@@ -7,6 +7,7 @@ handshake, which is why the existing HACS integrations cannot talk to them.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import socket
@@ -90,10 +91,8 @@ def test_connection(host: str, port: int = DEFAULT_PORT) -> None:
         raise VidaaError(str(err)) from err
     finally:
         client.loop_stop()
-        try:
+        with contextlib.suppress(OSError):
             client.disconnect()
-        except OSError:
-            pass
 
 
 class VidaaTV:
@@ -117,6 +116,8 @@ class VidaaTV:
         self.device_info: dict = {}
 
         self._listeners: list[Callable[[], None]] = []
+        self._connack: int | None = None
+        self._answered = threading.Event()
         self._client = _new_client(CLIENT_ID)
         self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
         self._client.reconnect_delay_set(min_delay=1, max_delay=60)
@@ -125,10 +126,6 @@ class VidaaTV:
         self._client.on_message = self._on_message
 
     # ---------------------------------------------------------------- state
-
-    @property
-    def available(self) -> bool:
-        return self.connected
 
     @property
     def is_on(self) -> bool:
@@ -147,6 +144,8 @@ class VidaaTV:
     # ------------------------------------------------------------ callbacks
 
     def _on_connect(self, client, _userdata, _flags, rc):
+        self._connack = rc
+        self._answered.set()
         if rc != 0:
             _LOGGER.error("TV %s rejected connection: %s", self.host, mqtt.connack_string(rc))
             return
@@ -267,12 +266,11 @@ class VidaaTV:
             self._topic("ui_service", "sendtext"), json.dumps({"text": text})
         )
 
-    def change_channel(self, channel: dict | str) -> None:
-        """Switch channel using a channel object from the TV's own list."""
-        payload = channel if isinstance(channel, str) else json.dumps(channel)
-        self._client.publish(self._topic("ui_service", "changechannel"), payload)
-
     def send_key(self, key: str) -> None:
+        """Send a remote key. Accepts "mute" as well as "KEY_MUTE"."""
+        key = key.strip().upper()
+        if not key.startswith("KEY_"):
+            key = f"KEY_{key}"
         self._client.publish(self._topic("remote_service", "sendkey"), key)
 
     def set_volume(self, volume: int) -> None:
@@ -309,8 +307,28 @@ class VidaaTV:
     # ------------------------------------------------------------ lifecycle
 
     async def async_start(self) -> None:
-        await self.hass.async_add_executor_job(self._client.connect, self.host, self.port, 30)
+        """Connect, and confirm the TV accepted us before reporting success."""
+        await self.hass.async_add_executor_job(self._connect_and_verify)
+
+    def _connect_and_verify(self) -> None:
+        """Blocking connect that surfaces refusal instead of retrying silently."""
+        try:
+            self._client.connect(self.host, self.port, 30)
+        except OSError as err:
+            raise VidaaError(f"cannot reach {self.host}:{self.port} ({err})") from err
+
+        self._answered.clear()
         self._client.loop_start()
+        try:
+            if not self._answered.wait(15):
+                raise VidaaError("TV accepted the socket but never sent an MQTT CONNACK")
+            if self._connack == 5:
+                raise VidaaAuthError("TV rejected the credentials")
+            if self._connack != 0:
+                raise VidaaError(mqtt.connack_string(self._connack))
+        except VidaaError:
+            self._client.loop_stop()
+            raise
 
     async def async_stop(self) -> None:
         self._client.loop_stop()
