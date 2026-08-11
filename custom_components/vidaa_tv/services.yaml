@@ -1,0 +1,76 @@
+send_key:
+  name: Send key
+  description: >-
+    Send any remote key to the TV. Accepts "KEY_MUTE" or just "mute". Unknown
+    keys are silently ignored by the TV, so experimenting is safe.
+  fields:
+    key:
+      name: Key
+      description: Key name, with or without the KEY_ prefix.
+      required: true
+      example: KEY_SUBTITLE
+      selector:
+        text:
+    entry_id:
+      name: Entry ID
+      description: Only needed when more than one TV is configured.
+      required: false
+      selector:
+        text:
+
+publish:
+  name: Publish raw MQTT
+  description: >-
+    Publish any message to the TV's MQTT broker. Use "service" plus "action" for
+    the normal /remoteapp/tv/<service>/<client>/actions/<action> tree, or
+    "topic" to publish to a completely arbitrary topic.
+  fields:
+    service:
+      name: Service
+      description: The VIDAA service name. Mutually exclusive with "topic".
+      required: false
+      example: ui_service
+      selector:
+        select:
+          options:
+            - remote_service
+            - ui_service
+            - platform_service
+    action:
+      name: Action
+      description: Action name, used together with "service".
+      required: false
+      example: changesource
+      selector:
+        text:
+    topic:
+      name: Topic
+      description: Full MQTT topic. Mutually exclusive with "service".
+      required: false
+      example: /remoteapp/tv/ui_service/00:11:22:33:44:55$normal/actions/applist
+      selector:
+        text:
+    payload:
+      name: Payload
+      description: String, or an object/list which is encoded as JSON.
+      required: false
+      example: '{"sourceid": "4"}'
+      selector:
+        object:
+    entry_id:
+      name: Entry ID
+      description: Only needed when more than one TV is configured.
+      required: false
+      selector:
+        text:
+
+refresh:
+  name: Refresh
+  description: Ask the TV to resend its source list and app list.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Only needed when more than one TV is configured.
+      required: false
+      selector:
+        text:

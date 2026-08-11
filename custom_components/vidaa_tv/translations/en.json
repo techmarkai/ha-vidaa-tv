@@ -1,0 +1,66 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "VIDAA TV found",
+        "description": "Select the TV to add, or choose manual entry to type an address yourself.",
+        "data": {
+          "host": "TV"
+        }
+      },
+      "manual": {
+        "title": "Add a VIDAA TV",
+        "description": "Enter the IP address of your Hisense/Toshiba VIDAA TV. The TV must be switched on so the connection can be tested.",
+        "data": {
+          "host": "IP address",
+          "name": "Name",
+          "port": "Port",
+          "mac": "MAC address (optional, enables turn on via Wake-on-LAN)"
+        }
+      },
+      "confirm": {
+        "title": "Add VIDAA TV",
+        "description": "Add {name} at {host}?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the TV on this port. Check the TV is on, and that Home Assistant can route to the TV's network (a firewall between subnets is the usual cause).",
+      "invalid_auth": "The TV rejected the connection. Newer VIDAA models require PIN pairing, which this integration does not support."
+    },
+    "abort": {
+      "already_configured": "This TV is already set up.",
+      "cannot_connect": "Could not reach the TV.",
+      "invalid_auth": "The TV requires PIN pairing, which this integration does not support.",
+      "not_vidaa": "This device does not run a VIDAA remote-control service."
+    }
+  },
+  "services": {
+    "send_key": {
+      "name": "Send key",
+      "description": "Send any remote key to the TV.",
+      "fields": {
+        "key": { "name": "Key", "description": "Key name, with or without the KEY_ prefix." },
+        "entry_id": { "name": "Entry ID", "description": "Only needed when more than one TV is configured." }
+      }
+    },
+    "publish": {
+      "name": "Publish raw MQTT",
+      "description": "Publish any message to the TV's MQTT broker.",
+      "fields": {
+        "service": { "name": "Service", "description": "VIDAA service name. Mutually exclusive with topic." },
+        "action": { "name": "Action", "description": "Action name, used with service." },
+        "topic": { "name": "Topic", "description": "Full MQTT topic. Mutually exclusive with service." },
+        "payload": { "name": "Payload", "description": "String, or an object encoded as JSON." },
+        "entry_id": { "name": "Entry ID", "description": "Only needed when more than one TV is configured." }
+      }
+    },
+    "refresh": {
+      "name": "Refresh",
+      "description": "Ask the TV to resend its source and app lists.",
+      "fields": {
+        "entry_id": { "name": "Entry ID", "description": "Only needed when more than one TV is configured." }
+      }
+    }
+  }
+}
