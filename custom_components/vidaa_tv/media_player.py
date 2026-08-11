@@ -6,6 +6,8 @@ import asyncio
 from typing import Any
 
 from homeassistant.components.media_player import (
+    BrowseMedia,
+    MediaClass,
     MediaPlayerDeviceClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
@@ -34,6 +36,7 @@ SUPPORT = (
     | MediaPlayerEntityFeature.NEXT_TRACK
     | MediaPlayerEntityFeature.PREVIOUS_TRACK
     | MediaPlayerEntityFeature.PLAY_MEDIA
+    | MediaPlayerEntityFeature.BROWSE_MEDIA
 )
 
 # Delay between digit presses when tuning a channel; the TV drops keys sent
@@ -175,6 +178,10 @@ class VidaaMediaPlayer(MediaPlayerEntity):
             await self.hass.async_add_executor_job(self._tv.open_url, media_id)
             return
 
+        if kind in ("source", "input"):
+            await self.async_select_source(media_id)
+            return
+
         if kind in (MediaType.CHANNEL, "channel"):
             digits = str(media_id).strip()
             if not digits.isdigit():
@@ -188,5 +195,83 @@ class VidaaMediaPlayer(MediaPlayerEntity):
             return
 
         raise ServiceValidationError(
-            f"Unsupported media type '{media_type}'. Use app, url or channel."
+            f"Unsupported media type '{media_type}'. Use app, url, source or channel."
         )
+
+    # ---------------------------------------------------------- media browser
+
+    async def async_browse_media(
+        self, media_content_type: str | None = None, media_content_id: str | None = None
+    ) -> BrowseMedia:
+        """Browse apps, inputs and — where the TV provides them — channels."""
+        if media_content_id in (None, "", "root"):
+            children = [
+                self._directory("Apps", "apps"),
+                self._directory("Inputs", "inputs"),
+            ]
+            if self._tv.channels:
+                children.append(self._directory("Channels", "channels"))
+            return self._directory("Vidaa TV", "root", children)
+
+        if media_content_id == "apps":
+            return self._directory("Apps", "apps", [
+                self._item(app.get("name", "?"), MediaType.APP, MediaClass.APP)
+                for app in self._tv.apps if app.get("name")
+            ])
+
+        if media_content_id == "inputs":
+            return self._directory("Inputs", "inputs", [
+                self._item(src.get("sourcename", "?"), "source", MediaClass.CHANNEL)
+                for src in self._tv.sources if src.get("sourcename")
+            ])
+
+        if media_content_id == "channels":
+            return self._directory("Channels", "channels", [
+                self._item(
+                    ch.get("channel_name") or ch.get("name") or str(ch.get("channel_num", "?")),
+                    MediaType.CHANNEL,
+                    MediaClass.CHANNEL,
+                    str(ch.get("channel_num") or ch.get("major") or ""),
+                )
+                for ch in self._tv.channels
+            ])
+
+        raise ServiceValidationError(f"Unknown media location: {media_content_id}")
+
+    @staticmethod
+    def _directory(title, content_id, children=None) -> BrowseMedia:
+        return BrowseMedia(
+            title=title,
+            media_class=MediaClass.DIRECTORY,
+            media_content_type="",
+            media_content_id=content_id,
+            can_play=False,
+            can_expand=True,
+            children=children or [],
+            children_media_class=MediaClass.APP if children else None,
+        )
+
+    @staticmethod
+    def _item(title, content_type, media_class, content_id=None) -> BrowseMedia:
+        return BrowseMedia(
+            title=title,
+            media_class=media_class,
+            media_content_type=content_type,
+            media_content_id=content_id if content_id is not None else title,
+            can_play=True,
+            can_expand=False,
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Surface whatever the TV told us about itself."""
+        attrs: dict[str, Any] = {}
+        if self._tv.state_type:
+            attrs["state_type"] = self._tv.state_type
+        if self._tv.device_info:
+            attrs.update(
+                {f"device_{k}": v for k, v in self._tv.device_info.items()}
+            )
+        if self._tv.current_channel:
+            attrs["channel"] = self._tv.current_channel
+        return attrs

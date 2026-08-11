@@ -25,8 +25,11 @@ never connect to them. This one talks to the TV the way the TV actually answers.
 | **Volume** | Absolute level, up/down, mute |
 | **Sources** | TV, AV, HDMI1–3 — read live from the TV, not hard-coded |
 | **Apps** | Netflix, YouTube, Plex, browser, Screen Mirroring, and anything else installed |
-| **Play media** | Launch an app, open a URL, or tune a channel by number |
+| **Play media** | Launch an app, open a URL, switch input, or tune a channel |
+| **Media browser** | Browse apps, inputs and channels from HA's media browser |
 | **Remote** | Every key, via a `remote` entity — arbitrary keys accepted |
+| **Text entry** | Type into TV search boxes and login fields |
+| **Channels** | Channel list and current channel, where the firmware provides them |
 | **Raw access** | Publish any MQTT message to the TV |
 | **State** | Push. The TV broadcasts app, input and volume changes as they happen |
 
@@ -145,9 +148,33 @@ data:
     sourceid: "4"
 ```
 
+### `vidaa_tv.send_text`
+
+Type into whatever field the TV has focused — a search box, a login form. Not
+all firmware implements this; those TVs quietly ignore it.
+
+```yaml
+action: vidaa_tv.send_text
+data:
+  text: stranger things
+```
+
 ### `vidaa_tv.refresh`
 
-Ask the TV to resend its source and app lists.
+Ask the TV to resend its source list, app list, device info and channel list.
+
+## What does my TV support?
+
+Firmware varies a lot. To find out exactly what yours answers:
+
+```bash
+python tools/probe.py 192.168.1.50
+```
+
+It tries both plain and TLS transports, fires every action worth trying, and
+prints which ones replied. Nothing it sends changes a setting. If your TV
+answers something this integration does not model yet, that output is exactly
+what to attach to an issue.
 
 ## Caveats
 

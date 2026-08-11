@@ -15,8 +15,10 @@ MQTT_PASSWORD = "multimqttservice"
 # stable and must keep the "<mac>$normal" shape. The MAC itself is arbitrary.
 CLIENT_ID = "00:11:22:33:44:55$normal"
 
-# statetype values the TV reports when it is asleep rather than showing content.
-OFF_STATE_TYPES = ("fake_sleep_0", "sleep")
+# Substrings that mark a statetype as "not actually showing anything". Matched
+# as substrings because firmware versions vary the exact wording
+# ("fake_sleep_0", "sleep", "standby", ...).
+OFF_STATE_MARKERS = ("sleep", "standby", "poweroff", "power_off", "shutdown")
 
 # Service names used in the /remoteapp/tv/<service>/... topic tree.
 SERVICES = ("remote_service", "ui_service", "platform_service")

@@ -55,6 +55,14 @@
         "entry_id": { "name": "Entry ID", "description": "Only needed when more than one TV is configured." }
       }
     },
+    "send_text": {
+      "name": "Send text",
+      "description": "Type text into the field the TV currently has focused.",
+      "fields": {
+        "text": { "name": "Text", "description": "The text to type." },
+        "entry_id": { "name": "Entry ID", "description": "Only needed when more than one TV is configured." }
+      }
+    },
     "refresh": {
       "name": "Refresh",
       "description": "Ask the TV to resend its source and app lists.",

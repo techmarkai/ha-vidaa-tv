@@ -29,6 +29,13 @@ SEND_KEY_SCHEMA = vol.Schema(
     }
 )
 
+SEND_TEXT_SCHEMA = vol.Schema(
+    {
+        vol.Required("text"): cv.string,
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+    }
+)
+
 PUBLISH_SCHEMA = vol.Schema(
     {
         vol.Exclusive("topic", "target"): cv.string,
@@ -68,7 +75,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         tv = hass.data[DOMAIN].pop(entry.entry_id)
         await tv.async_stop()
         if not hass.data[DOMAIN]:
-            for name in ("send_key", "publish", "refresh"):
+            for name in ("send_key", "publish", "send_text", "refresh"):
                 hass.services.async_remove(DOMAIN, name)
     return unloaded
 
@@ -117,8 +124,13 @@ def _async_register_services(hass: HomeAssistant) -> None:
     async def _refresh(call: ServiceCall) -> None:
         await hass.async_add_executor_job(_resolve(call).refresh)
 
+    async def _send_text(call: ServiceCall) -> None:
+        tv = _resolve(call)
+        await hass.async_add_executor_job(tv.send_text, call.data["text"])
+
     hass.services.async_register(DOMAIN, "send_key", _send_key, SEND_KEY_SCHEMA)
     hass.services.async_register(DOMAIN, "publish", _publish, PUBLISH_SCHEMA)
+    hass.services.async_register(DOMAIN, "send_text", _send_text, SEND_TEXT_SCHEMA)
     hass.services.async_register(
         DOMAIN, "refresh", _refresh, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})
     )

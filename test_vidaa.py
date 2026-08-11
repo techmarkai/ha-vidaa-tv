@@ -85,13 +85,50 @@ def main():
         "/remoteapp/mobile/broadcast/ui_service/state", "not json"))
     tv._on_message(None, None, Msg("/remoteapp/mobile/broadcast/unknown/thing", "{}"))
 
-    # Sleep states must read as off even while MQTT stays connected.
+    # Channel list: plain list, and the object-wrapped variant.
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/x/ui_service/data/gettvchannellist",
+        '[{"channel_num":"104","channel_name":"BBC One"}]'))
+    assert tv.channels[0]["channel_name"] == "BBC One"
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/x/ui_service/data/gettvchannellist",
+        '{"list":[{"channel_num":"7","channel_name":"Alt"}]}'))
+    assert tv.channels[0]["channel_num"] == "7", tv.channels
+    # A shape we do not understand must not leave a non-list behind.
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/x/ui_service/data/gettvchannellist", '"nonsense"'))
+    assert isinstance(tv.channels, list)
+
+    # Device info accumulates rather than replacing.
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/x/ui_service/data/getdeviceinfo",
+        '{"model":"43QA4163DB"}'))
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/x/platform_service/data/getdeviceinfo",
+        '{"firmware":"V0000.01.00b"}'))
+    assert tv.device_info == {"model": "43QA4163DB", "firmware": "V0000.01.00b"}
+
+    # Mute, if this firmware ever reports it.
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/broadcast/platform_service/actions/mutechange",
+        '{"mute":"1"}'))
+    assert tv.muted is True
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/broadcast/platform_service/actions/mutechange",
+        '{"mute":"0"}'))
+    assert tv.muted is False
+
+    # Sleep states must read as off even while MQTT stays connected. Matched as
+    # substrings because firmware wording varies.
     tv.connected = True
-    tv.state_type = "app"
-    assert tv.is_on
-    tv.state_type = "fake_sleep_0"
-    assert not tv.is_on
+    for awake in ("app", "sourceswitch", "livetv"):
+        tv.state_type = awake
+        assert tv.is_on, awake
+    for asleep in ("fake_sleep_0", "sleep", "standby", "POWEROFF", "power_off"):
+        tv.state_type = asleep
+        assert not tv.is_on, asleep
     tv.connected = False
+    tv.state_type = "app"
     assert not tv.is_on
 
     # App and source lookup: by name or url, case-insensitive, no false hits.

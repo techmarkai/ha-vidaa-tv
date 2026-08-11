@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import paho.mqtt.client as mqtt
 
-from .const import CLIENT_ID, DEFAULT_PORT, MQTT_PASSWORD, MQTT_USERNAME, OFF_STATE_TYPES
+from .const import CLIENT_ID, DEFAULT_PORT, MQTT_PASSWORD, MQTT_USERNAME, OFF_STATE_MARKERS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,6 +112,9 @@ class VidaaTV:
         self.current_name: str | None = None
         self.sources: list[dict] = []
         self.apps: list[dict] = []
+        self.channels: list[dict] = []
+        self.current_channel: dict | None = None
+        self.device_info: dict = {}
 
         self._listeners: list[Callable[[], None]] = []
         self._client = _new_client(CLIENT_ID)
@@ -129,7 +132,8 @@ class VidaaTV:
 
     @property
     def is_on(self) -> bool:
-        return self.connected and self.state_type not in OFF_STATE_TYPES
+        state = (self.state_type or "").lower()
+        return self.connected and not any(m in state for m in OFF_STATE_MARKERS)
 
     def add_listener(self, callback: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(callback)
@@ -159,18 +163,44 @@ class VidaaTV:
 
     def _on_message(self, _client, _userdata, msg):
         topic, payload = msg.topic, msg.payload
+        low = topic.lower()
         try:
             if topic.endswith("/ui_service/state"):
                 data = json.loads(payload)
                 self.state_type = data.get("statetype")
                 # Apps report "name"; input switches report "sourcename" instead.
                 self.current_name = data.get("name") or data.get("sourcename")
-            elif topic.endswith("platform_service/actions/volumechange"):
+                # Live TV reports the channel inline on some firmware.
+                if data.get("channel_name") or data.get("channelname"):
+                    self.current_channel = data
+                    self.current_name = (
+                        data.get("channel_name") or data.get("channelname")
+                    )
+            elif "volumechange" in low:
                 self.volume = int(json.loads(payload)["volume_value"])
-            elif topic.endswith("/ui_service/data/sourcelist"):
+            elif low.endswith("/data/sourcelist"):
                 self.sources = json.loads(payload)
-            elif topic.endswith("/ui_service/data/applist"):
+            elif low.endswith("/data/applist"):
                 self.apps = json.loads(payload)
+            elif "channellist" in low:
+                channels = json.loads(payload)
+                # Some firmware wraps the list in an object.
+                if isinstance(channels, dict):
+                    channels = channels.get("list") or channels.get("channels") or []
+                self.channels = channels if isinstance(channels, list) else []
+            elif "currentchannel" in low:
+                self.current_channel = json.loads(payload)
+            elif "deviceinfo" in low:
+                info = json.loads(payload)
+                if isinstance(info, dict):
+                    self.device_info.update(info)
+            elif "mute" in low:
+                data = json.loads(payload)
+                if isinstance(data, dict):
+                    for key in ("mute", "is_mute", "mute_status", "mute_value"):
+                        if key in data:
+                            self.muted = str(data[key]).lower() in ("1", "true", "on")
+                            break
             else:
                 return
         except (ValueError, TypeError, KeyError) as err:
@@ -219,8 +249,28 @@ class VidaaTV:
         self._client.publish(self._topic(service, action), payload)
 
     def refresh(self) -> None:
-        for action in ("sourcelist", "applist"):
+        """Ask for everything the TV is willing to describe about itself.
+
+        Unsupported actions are simply ignored by the TV, so asking costs
+        nothing on firmware that lacks them.
+        """
+        for action in (
+            "sourcelist", "applist", "getdeviceinfo",
+            "gettvchannellist", "getcurrentchannel",
+        ):
             self._client.publish(self._topic("ui_service", action), "")
+        self._client.publish(self._topic("platform_service", "getdeviceinfo"), "")
+
+    def send_text(self, text: str) -> None:
+        """Type into whatever field the TV has focused (search boxes, logins)."""
+        self._client.publish(
+            self._topic("ui_service", "sendtext"), json.dumps({"text": text})
+        )
+
+    def change_channel(self, channel: dict | str) -> None:
+        """Switch channel using a channel object from the TV's own list."""
+        payload = channel if isinstance(channel, str) else json.dumps(channel)
+        self._client.publish(self._topic("ui_service", "changechannel"), payload)
 
     def send_key(self, key: str) -> None:
         self._client.publish(self._topic("remote_service", "sendkey"), key)
