@@ -1,120 +1,178 @@
-"""Generate the brand assets HACS and Home Assistant expect.
+"""Generate the brand assets Home Assistant and HACS expect.
 
     python tools/make_brand.py
 
-Writes icon/logo PNGs into custom_components/vidaa_tv/brand/.
+Writes into custom_components/vidaa_tv/brand/:
 
-Two rules from home-assistant/brands drive the design:
+    logo.png / logo@2x.png   the VIDAA wordmark, background removed
+    icon.png / icon@2x.png   a square television mark in the VIDAA gradient
 
-1. "Custom integrations must not use Home Assistant branded images, as this
-   might confuse the end-user into thinking that the integration is an official
-   integration." So the palette deliberately avoids Home Assistant's blue.
-2. "The image should be trimmed, so it contains the minimum amount of empty
-   space on the edges." So the drawing is auto-cropped to its content and then
-   padded only as far as the required 1:1 aspect ratio demands.
+Since Home Assistant 2026.3 a custom integration ships its own brand images in
+custom_components/<domain>/brand/, and those take priority over the brands CDN.
+The home-assistant/brands repository no longer accepts custom integration
+icons, so there is nothing to submit upstream.
 
-The mark is a generic television. VIDAA, Hisense and Toshiba are other people's
-trademarks and must not be shipped inside a third-party integration.
+Icons must be square, so the wordmark cannot be one without leaving most of the
+canvas empty. The square mark therefore reuses VIDAA's gradient, sampled from
+the wordmark itself, on a generic television silhouette.
+
+VIDAA is a trademark of Hisense. The wordmark is included for identification of
+the devices this integration controls, which is the same basis on which Home
+Assistant's own brands repository carries vendor logos.
 """
 
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-OUT = Path(__file__).resolve().parent.parent / "custom_components" / "vidaa_tv" / "brand"
+ROOT = Path(__file__).resolve().parent.parent
+SOURCE = Path(__file__).resolve().parent / "vidaa-wordmark.jpg"
+OUT = ROOT / "custom_components" / "vidaa_tv" / "brand"
 
-# Teal and amber: legible on both light and dark backgrounds, and clearly not
-# Home Assistant's palette.
-BEZEL = (0, 150, 136, 255)
-SCREEN = (16, 42, 40, 255)
-GLOW = (255, 202, 64, 255)
-
+SCREEN = (26, 12, 40, 255)      # near-black plum, so the gradient reads as the frame
+ARC = (255, 255, 255, 255)
 SUPERSAMPLE = 4
 
 
-def _render(canvas: int) -> Image.Image:
-    """Draw the mark on a `canvas`-sized square, using a 256-unit design grid."""
-    img = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+def wordmark() -> Image.Image:
+    """Load the wordmark and knock the white background out to transparency."""
+    img = Image.open(SOURCE).convert("RGB")
+    px = img.load()
+    out = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    op = out.load()
+    for y in range(img.height):
+        for x in range(img.width):
+            r, g, b = px[x, y]
+            # Strokes are saturated, the background is pure white. Scaling the
+            # distance from white keeps strokes fully opaque while leaving the
+            # antialiased edges soft, rather than unpremultiplying into
+            # half-transparent letters that vanish on dark backgrounds.
+            alpha = min(255, (255 - min(r, g, b)) * 4)
+            if alpha:
+                op[x, y] = (r, g, b, alpha)
+    return out.crop(out.getbbox())
+
+
+def gradient_stops(mark: Image.Image, count: int = 24) -> list[tuple[int, int, int]]:
+    """Average each vertical slice of the wordmark to recover its gradient."""
+    px = mark.load()
+    stops = []
+    step = max(1, mark.width // count)
+    for x0 in range(0, mark.width, step):
+        totals = [0, 0, 0]
+        seen = 0
+        for x in range(x0, min(x0 + step, mark.width)):
+            for y in range(0, mark.height, 2):      # every other row is plenty
+                r, g, b, a = px[x, y]
+                if a > 200:
+                    totals[0] += r
+                    totals[1] += g
+                    totals[2] += b
+                    seen += 1
+        if seen:
+            stops.append(tuple(t // seen for t in totals))
+    return stops
+
+
+def gradient_image(size: int, stops: list[tuple[int, int, int]]) -> Image.Image:
+    """A horizontal gradient interpolated across the sampled stops."""
+    grad = Image.new("RGB", (len(stops), 1))
+    grad.putdata(stops)
+    return grad.resize((size, size), Image.BICUBIC)
+
+
+def _silhouette(canvas: int) -> Image.Image:
+    """White-on-black mask of the television frame, minus the screen cutout."""
+    mask = Image.new("L", (canvas, canvas), 0)
+    d = ImageDraw.Draw(mask)
     u = canvas / 256
-
     left, right = 6 * u, 250 * u
-    body_top, body_bottom = 14 * u, 188 * u
+    top, bottom = 14 * u, 188 * u
 
-    d.rounded_rectangle([left, body_top, right, body_bottom], radius=24 * u, fill=BEZEL)
-
+    d.rounded_rectangle([left, top, right, bottom], radius=24 * u, fill=255)
     inset = 17 * u
     d.rounded_rectangle(
-        [left + inset, body_top + inset, right - inset, body_bottom - inset],
-        radius=11 * u,
-        fill=SCREEN,
+        [left + inset, top + inset, right - inset, bottom - inset],
+        radius=11 * u, fill=0,
     )
 
-    # Signal arcs: this TV is driven over the network, so the mark says so.
-    cx = canvas / 2
-    cy = body_top + (body_bottom - body_top) * 0.66
-    for i, radius in enumerate((26, 46, 66)):
-        r = radius * u
-        d.arc(
-            [cx - r, cy - r, cx + r, cy + r],
-            start=202, end=338,
-            fill=GLOW[:3] + (255 - i * 50,),
-            width=max(1, int(7 * u)),
-        )
-    dot = 8 * u
-    d.ellipse([cx - dot, cy - dot, cx + dot, cy + dot], fill=GLOW)
-
-    # Stand
     neck_w, neck_h = 30 * u, 18 * u
-    d.rectangle([cx - neck_w, body_bottom - u, cx + neck_w, body_bottom + neck_h], fill=BEZEL)
+    cx = canvas / 2
+    d.rectangle([cx - neck_w, bottom - u, cx + neck_w, bottom + neck_h], fill=255)
     foot_w = 88 * u
     d.rounded_rectangle(
-        [cx - foot_w, body_bottom + neck_h, cx + foot_w, body_bottom + neck_h + 22 * u],
-        radius=11 * u,
-        fill=BEZEL,
+        [cx - foot_w, bottom + neck_h, cx + foot_w, bottom + neck_h + 22 * u],
+        radius=11 * u, fill=255,
     )
-    return img
+    return mask
 
 
-def build(size: int) -> Image.Image:
-    """Render big, trim to content, pad to square, then downsample."""
-    img = _render(size * SUPERSAMPLE)
+def build_icon(size: int, stops: list[tuple[int, int, int]]) -> Image.Image:
+    canvas = size * SUPERSAMPLE
+    u = canvas / 256
 
-    bbox = img.getbbox()          # alpha-aware: exact content bounds
-    if bbox is None:
-        raise RuntimeError("drew nothing")
+    img = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    # Screen first, so the gradient frame paints over its edges.
+    left, right, top, bottom = 6 * u, 250 * u, 14 * u, 188 * u
+    inset = 17 * u
+    d.rounded_rectangle(
+        [left + inset, top + inset, right - inset, bottom - inset],
+        radius=11 * u, fill=SCREEN,
+    )
+
+    # Signal arcs — the TV is driven over the network.
+    cx = canvas / 2
+    cy = top + (bottom - top) * 0.66
+    for i, radius in enumerate((26, 46, 66)):
+        r = radius * u
+        d.arc([cx - r, cy - r, cx + r, cy + r], start=202, end=338,
+              fill=ARC[:3] + (255 - i * 55,), width=max(1, int(7 * u)))
+    dot = 8 * u
+    d.ellipse([cx - dot, cy - dot, cx + dot, cy + dot], fill=ARC)
+
+    frame = gradient_image(canvas, stops).convert("RGBA")
+    frame.putalpha(_silhouette(canvas))
+    img.alpha_composite(frame)
+
+    bbox = img.getbbox()
     img = img.crop(bbox)
-
-    # Icons must be 1:1, so pad the shorter axis only.
     side = max(img.size)
     square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
     square.paste(img, ((side - img.width) // 2, (side - img.height) // 2))
-
     return square.resize((size, size), Image.LANCZOS)
 
 
+def build_logo(mark: Image.Image, height: int) -> Image.Image:
+    width = round(mark.width * height / mark.height)
+    return mark.resize((width, height), Image.LANCZOS)
+
+
 def main() -> None:
+    if not SOURCE.exists():
+        raise SystemExit(f"missing source wordmark: {SOURCE}")
+
     OUT.mkdir(parents=True, exist_ok=True)
+    mark = wordmark()
+    stops = gradient_stops(mark)
+    print(f"wordmark {mark.width}x{mark.height}, {len(stops)} gradient stops "
+          f"{stops[0]} -> {stops[-1]}")
 
-    for name, size in (("icon.png", 256), ("icon@2x.png", 512)):
-        img = build(size)
-        img.save(OUT / name, optimize=True)
-
-    # Logo is optional and falls back to the icon, but shipping it keeps the
-    # HACS in-repo brands check happy without a second design.
-    build(256).save(OUT / "logo.png", optimize=True)
-    build(512).save(OUT / "logo@2x.png", optimize=True)
+    build_icon(256, stops).save(OUT / "icon.png", optimize=True)
+    build_icon(512, stops).save(OUT / "icon@2x.png", optimize=True)
+    # Logo spec: shortest side 128-256 normal, 256-512 hDPI.
+    build_logo(mark, 256).save(OUT / "logo.png", optimize=True)
+    build_logo(mark, 512).save(OUT / "logo@2x.png", optimize=True)
 
     for f in sorted(OUT.glob("*.png")):
         with Image.open(f) as im:
             x0, y0, x1, y1 = im.getbbox()
-            # Content fills the width; the icon must be 1:1, so a landscape
-            # mark keeps a little padding above and below. Report how much.
-            pad = max(x0, y0, im.width - x1, im.height - y1) / im.width
+            pad = max(x0, y0, im.width - x1, im.height - y1) / max(im.size)
             print(f"{f.name}: {im.width}x{im.height} {im.mode} "
                   f"{f.stat().st_size}B padding={pad:.1%}")
-            if pad > 0.10:
-                raise SystemExit(f"{f.name}: {pad:.1%} padding is too much")
+            if f.name.startswith("icon") and im.width != im.height:
+                raise SystemExit(f"{f.name} must be square")
 
 
 if __name__ == "__main__":

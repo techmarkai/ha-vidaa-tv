@@ -1,3 +1,8 @@
+# Screenshots and scratch images dropped in the repo root. Brand assets live in
+# custom_components/vidaa_tv/brand/ and the wordmark source in tools/.
+/*.png
+/*.jpg
+
 __pycache__/
 *.py[cod]
 .venv/
