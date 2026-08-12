@@ -121,6 +121,8 @@ class VidaaTV:
         self.channels: list[dict] = []
         self.current_channel: dict | None = None
         self.device_info: dict = {}
+        self.auth_failed = False
+        self._last_connack_rc: int | None = None
 
         self._listeners: list[Callable[[], None]] = []
         self._client = _new_client(CLIENT_ID)
@@ -170,8 +172,30 @@ class VidaaTV:
 
     def _on_connect(self, client, _userdata, _flags, rc):
         if rc != 0:
-            _LOGGER.error("TV %s rejected connection: %s", self.host, mqtt.connack_string(rc))
+            if rc == 5:
+                # Not recoverable: the firmware now wants PIN pairing, which we
+                # do not implement. Log once and stop, rather than 2,880 ERROR
+                # lines a day against a TV that will never let us in.
+                if not self.auth_failed:
+                    self.auth_failed = True
+                    _LOGGER.error(
+                        "TV %s rejected our credentials. This firmware requires PIN "
+                        "pairing, which this integration does not support. Giving up; "
+                        "remove the VIDAA TV config entry for %s.",
+                        self.host, self.host,
+                    )
+                with contextlib.suppress(OSError, ValueError):
+                    client.disconnect()
+                return
+            # Log a persistent failure only when it changes; otherwise every
+            # 30s reconnect writes the same ERROR forever.
+            if rc != self._last_connack_rc:
+                _LOGGER.error(
+                    "TV %s rejected connection: %s", self.host, mqtt.connack_string(rc)
+                )
+            self._last_connack_rc = rc
             return
+        self._last_connack_rc = 0
         self.connected = True
         client.subscribe("/remoteapp/mobile/broadcast/#")
         client.subscribe(f"/remoteapp/mobile/{CLIENT_ID}/#")
@@ -347,9 +371,10 @@ class VidaaTV:
         reconnect() is not thread-safe against its own network thread. The one
         failure this exists to catch is that thread being gone, which leaves
         nothing retrying at all. `_thread` is private, but it *is* the
-        invariant; there is no public equivalent. Blocking.
+        invariant; there is no public equivalent. A TV that rejected our
+        credentials is deliberately left alone entirely. Blocking.
         """
-        if self.connected:
+        if self.connected or self.auth_failed:
             return
         thread = getattr(self._client, "_thread", None)
         if thread is not None and thread.is_alive():

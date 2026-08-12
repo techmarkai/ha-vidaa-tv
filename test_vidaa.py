@@ -216,6 +216,19 @@ def main():
     tv.ping()
     assert reconnects == [1], reconnects
     tv._client._thread = None
+
+    # A rejected credential (rc=5) is terminal: give up instead of retrying
+    # forever and writing an ERROR every 30 seconds.
+    rejected = client.VidaaTV(FakeHass(), "10.0.0.8")
+    disconnects = []
+    rejected._client.disconnect = lambda: disconnects.append(1)
+    rejected._client.reconnect = lambda: reconnects.append("nope")
+    rejected._on_connect(rejected._client, None, None, 5)
+    assert rejected.auth_failed is True
+    assert not rejected.connected
+    assert disconnects == [1], disconnects
+    rejected.ping()
+    assert reconnects == [1], reconnects
     tv._client.reconnect = lambda: (_ for _ in ()).throw(OSError("in flight"))
     tv.ping()  # must not raise
 
