@@ -267,6 +267,21 @@ class VidaaTV:
     def _topic(self, service: str, action: str) -> str:
         return f"/remoteapp/tv/{service}/{CLIENT_ID}/actions/{action}"
 
+    def _publish(self, topic: str, payload: str = "") -> None:
+        """Publish and say so when it went nowhere.
+
+        Entities stay available while the TV is off, so without this a service
+        call against a sleeping TV succeeds silently and does nothing: at QoS 0
+        with no connection paho drops the message and only reports it here.
+        """
+        result = self._client.publish(topic, payload)
+        rc = getattr(result, "rc", mqtt.MQTT_ERR_SUCCESS)
+        if rc != mqtt.MQTT_ERR_SUCCESS:
+            _LOGGER.warning(
+                "Command to %s was dropped (%s); the TV is probably off",
+                topic, mqtt.error_string(rc),
+            )
+
     def find_app(self, wanted: str) -> dict | None:
         """Match an app by display name or url, case-insensitively."""
         target = wanted.strip().lower()
@@ -296,11 +311,11 @@ class VidaaTV:
     def publish_raw(self, topic: str, payload: str = "") -> None:
         """Escape hatch: publish any topic, for protocol bits not modelled here."""
         _LOGGER.debug("Publishing raw to %s: %s", topic, payload)
-        self._client.publish(topic, payload)
+        self._publish(topic, payload)
 
     def publish_action(self, service: str, action: str, payload: str = "") -> None:
         """Publish to /remoteapp/tv/<service>/<client>/actions/<action>."""
-        self._client.publish(self._topic(service, action), payload)
+        self._publish(self._topic(service, action), payload)
 
     def refresh(self) -> None:
         """Ask for everything the TV is willing to describe about itself.
@@ -312,12 +327,12 @@ class VidaaTV:
             "sourcelist", "applist", "getdeviceinfo",
             "gettvchannellist", "getcurrentchannel",
         ):
-            self._client.publish(self._topic("ui_service", action), "")
-        self._client.publish(self._topic("platform_service", "getdeviceinfo"), "")
+            self._publish(self._topic("ui_service", action), "")
+        self._publish(self._topic("platform_service", "getdeviceinfo"), "")
 
     def send_text(self, text: str) -> None:
         """Type into whatever field the TV has focused (search boxes, logins)."""
-        self._client.publish(
+        self._publish(
             self._topic("ui_service", "sendtext"), json.dumps({"text": text})
         )
 
@@ -326,17 +341,17 @@ class VidaaTV:
         key = key.strip().upper()
         if not key.startswith("KEY_"):
             key = f"KEY_{key}"
-        self._client.publish(self._topic("remote_service", "sendkey"), key)
+        self._publish(self._topic("remote_service", "sendkey"), key)
 
     def set_volume(self, volume: int) -> None:
         volume = max(0, min(100, int(volume)))
-        self._client.publish(self._topic("platform_service", "changevolume"), str(volume))
+        self._publish(self._topic("platform_service", "changevolume"), str(volume))
 
     def launch_app(self, app: dict) -> None:
-        self._client.publish(self._topic("ui_service", "launchapp"), json.dumps(app))
+        self._publish(self._topic("ui_service", "launchapp"), json.dumps(app))
 
     def select_source(self, source_id: str) -> None:
-        self._client.publish(
+        self._publish(
             self._topic("ui_service", "changesource"),
             json.dumps({"sourceid": str(source_id)}),
         )

@@ -213,6 +213,15 @@ def main():
         "urlType": 36, "storeType": 0,
     }, payload
 
+    # A dropped publish must warn, not raise — and a stub with no rc (as used
+    # throughout this file) must still count as success.
+    class _Dropped:
+        rc = 4  # MQTT_ERR_NO_CONN
+
+    tv._client.publish = lambda topic, payload: _Dropped()
+    tv.send_key("KEY_MUTE")  # must not raise
+    tv._client.publish = lambda topic, payload: sent.append((topic, payload))
+
     # Watchdog only reconnects while disconnected, and swallows a racing paho.
     reconnects = []
     tv._client.reconnect = lambda: reconnects.append(1)
