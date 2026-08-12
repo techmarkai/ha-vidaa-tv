@@ -222,15 +222,13 @@ def main():
     tv.send_key("KEY_MUTE")  # must not raise
     tv._client.publish = lambda topic, payload: sent.append((topic, payload))
 
-    # Watchdog only reconnects while disconnected, and swallows a racing paho.
-    reconnects = []
-    tv._client.reconnect = lambda: reconnects.append(1)
-    tv.connected = True
-    tv.ping()
-    assert reconnects == [], reconnects
-    tv.connected = False
-    tv.ping()
-    assert reconnects == [1], reconnects
+    # The watchdog restarts paho's network loop only when its thread is gone.
+    # reconnect() cannot help there: it sends CONNECT with nobody left to read
+    # the CONNACK, so the loop must be stopped (to clear paho's stale _thread)
+    # and started again.
+    loop_calls = []
+    tv._client.loop_stop = lambda: loop_calls.append("stop")
+    tv._client.loop_start = lambda: loop_calls.append("start")
 
     # A live paho network thread is already retrying; racing it is unsafe, so
     # the watchdog must keep its hands off.
@@ -238,25 +236,44 @@ def main():
         def is_alive(self):
             return True
 
+    tv.connected = False
     tv._client._thread = _AliveThread()
     tv.ping()
-    assert reconnects == [1], reconnects
+    assert loop_calls == [], loop_calls
+
+    # Connected: nothing to do either.
     tv._client._thread = None
+    tv.connected = True
+    tv.ping()
+    assert loop_calls == [], loop_calls
+
+    # Disconnected with a dead thread: stop then start, in that order.
+    tv.connected = False
+    tv.ping()
+    assert loop_calls == ["stop", "start"], loop_calls
+
+    # A racing paho must not propagate out of the watchdog.
+    loop_calls.clear()
+    tv._client.loop_stop = lambda: (_ for _ in ()).throw(OSError("in flight"))
+    tv.ping()  # must not raise
+    assert loop_calls == [], loop_calls
+    tv._client.loop_stop = lambda: loop_calls.append("stop")
 
     # A rejected credential (rc=5) is terminal: give up instead of retrying
     # forever and writing an ERROR every 30 seconds.
     rejected = client.VidaaTV(FakeHass(), "10.0.0.8")
     disconnects = []
     rejected._client.disconnect = lambda: disconnects.append(1)
-    rejected._client.reconnect = lambda: reconnects.append("nope")
+    rejected._client.loop_stop = lambda: loop_calls.append("nope")
+    rejected._client.loop_start = lambda: loop_calls.append("nope")
     rejected._on_connect(rejected._client, None, None, 5)
     assert rejected.auth_failed is True
     assert not rejected.connected
     assert disconnects == [1], disconnects
+    # Its thread was stopped on purpose; the watchdog must not restart it.
+    loop_calls.clear()
     rejected.ping()
-    assert reconnects == [1], reconnects
-    tv._client.reconnect = lambda: (_ for _ in ()).throw(OSError("in flight"))
-    tv.ping()  # must not raise
+    assert loop_calls == [], loop_calls
 
     # Startup must not block on the TV. connect_async performs no I/O, so a
     # TV that is off or unplugged costs nothing at setup time.

@@ -387,24 +387,35 @@ class VidaaTV:
         self._client.loop_start()
 
     def ping(self) -> None:
-        """Watchdog tick: restart paho only if its network thread has died.
+        """Watchdog tick: restart paho's network loop if its thread has died.
 
         A disconnected TV is the normal steady state here, so "not connected"
-        alone is no reason to act — paho is already retrying every 30s, and
-        reconnect() is not thread-safe against its own network thread. The one
-        failure this exists to catch is that thread being gone, which leaves
-        nothing retrying at all. `_thread` is private, but it *is* the
-        invariant; there is no public equivalent. A TV that rejected our
-        credentials is deliberately left alone entirely. Blocking.
+        alone is no reason to act — paho is already retrying every 30s. The one
+        failure this exists to catch is that thread being gone (an exception
+        escaping a callback kills it permanently), which leaves nothing
+        retrying at all. `_thread` is private, but it *is* the invariant; there
+        is no public equivalent.
+
+        loop_stop() joins the dead thread and clears paho's stale `_thread`
+        reference — without it loop_start() returns MQTT_ERR_INVAL and does
+        nothing. loop_start() then re-enters loop_forever(), which
+        re-establishes the connection itself, so no explicit reconnect() is
+        needed (reconnect() alone would never help: it sends CONNECT but leaves
+        nobody to read the CONNACK). A TV that rejected our credentials is
+        deliberately left alone entirely — its thread was stopped on purpose.
+        Blocking, briefly, in the join.
         """
         if self.connected or self.auth_failed:
             return
         thread = getattr(self._client, "_thread", None)
         if thread is not None and thread.is_alive():
             return  # paho's own retry loop is running; leave it alone.
-        _LOGGER.debug("Watchdog: paho's thread is gone for %s, reconnecting", self.host)
+        _LOGGER.debug(
+            "Watchdog: paho's thread is gone for %s, restarting its loop", self.host
+        )
         with contextlib.suppress(OSError, ValueError):
-            self._client.reconnect()
+            self._client.loop_stop()
+            self._client.loop_start()
 
     async def async_stop(self) -> None:
         self._client.loop_stop()
