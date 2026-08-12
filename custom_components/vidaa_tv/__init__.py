@@ -21,9 +21,9 @@ PLATFORMS = [Platform.MEDIA_PLAYER, Platform.REMOTE]
 
 ATTR_ENTRY_ID = "entry_id"
 
-# Comfortably longer than paho's flat 30s retry, so the watchdog only fires
-# when paho's retry loop has genuinely stopped rather than racing it. Its one
-# job is a network thread that died or wedged; ordinary reconnects are paho's.
+# Watchdog cadence. Ordinary reconnects are paho's job, and ping() bails out
+# unless paho's network thread is actually dead — a disconnected TV on its own
+# is not enough, since reconnect() racing that thread is unsafe.
 WATCHDOG_INTERVAL = timedelta(seconds=90)
 
 SERVICE_NAMES = ("publish", "send_key", "send_text", "refresh")

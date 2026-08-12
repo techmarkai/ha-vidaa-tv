@@ -340,16 +340,21 @@ class VidaaTV:
         self._client.loop_start()
 
     def ping(self) -> None:
-        """Watchdog tick: force a reconnect if paho's own retry loop stalled.
+        """Watchdog tick: restart paho only if its network thread has died.
 
-        paho normally reconnects on its own; this only matters when its network
-        thread has died or wedged, which leaves the entities unavailable forever
-        with nothing retrying. Blocking.
+        A disconnected TV is the normal steady state here, so "not connected"
+        alone is no reason to act — paho is already retrying every 30s, and
+        reconnect() is not thread-safe against its own network thread. The one
+        failure this exists to catch is that thread being gone, which leaves
+        nothing retrying at all. `_thread` is private, but it *is* the
+        invariant; there is no public equivalent. Blocking.
         """
         if self.connected:
             return
-        _LOGGER.debug("Watchdog: TV %s still disconnected, forcing reconnect", self.host)
-        # Racing paho's own in-flight reconnect just raises; that is harmless.
+        thread = getattr(self._client, "_thread", None)
+        if thread is not None and thread.is_alive():
+            return  # paho's own retry loop is running; leave it alone.
+        _LOGGER.debug("Watchdog: paho's thread is gone for %s, reconnecting", self.host)
         with contextlib.suppress(OSError, ValueError):
             self._client.reconnect()
 

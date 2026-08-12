@@ -205,6 +205,17 @@ def main():
     tv.connected = False
     tv.ping()
     assert reconnects == [1], reconnects
+
+    # A live paho network thread is already retrying; racing it is unsafe, so
+    # the watchdog must keep its hands off.
+    class _AliveThread:
+        def is_alive(self):
+            return True
+
+    tv._client._thread = _AliveThread()
+    tv.ping()
+    assert reconnects == [1], reconnects
+    tv._client._thread = None
     tv._client.reconnect = lambda: (_ for _ in ()).throw(OSError("in flight"))
     tv.ping()  # must not raise
 
