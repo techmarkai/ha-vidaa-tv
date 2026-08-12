@@ -195,16 +195,17 @@ what to attach to an issue.
 
 ## Upgrading from 1.x
 
-`vidaa_tv.send_key` was removed in 2.0.0 — it duplicated `remote.send_command`,
-which is the Home Assistant native way and supports targeting, repeats and
-delays. Replace:
+`vidaa_tv.send_key` was removed in 2.0.0 in favour of `remote.send_command`, and
+returned in 2.3.0 with a dropdown of every known key. Both work: use
+`vidaa_tv.send_key` for a single key, and `remote.send_command` when you want a
+sequence, repeats, delays, or to target a specific TV by entity.
 
 ```yaml
-# before
+# either
 action: vidaa_tv.send_key
 data: { key: KEY_SUBTITLE }
 
-# after
+# or
 action: remote.send_command
 target: { entity_id: remote.living_room_tv_remote }
 data: { command: KEY_SUBTITLE }
