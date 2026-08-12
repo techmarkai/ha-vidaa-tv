@@ -25,6 +25,7 @@ def _load():
 
 
 client = _load()
+const = sys.modules["vt.const"]
 
 
 class FakeLoop:
@@ -130,6 +131,29 @@ def main():
     tv.connected = False
     tv.state_type = "app"
     assert not tv.is_on
+
+    # Live TV detection drives which keys the track buttons send.
+    def live(state_type, name, channel=None):
+        tv.state_type, tv.current_name, tv.current_channel = state_type, name, channel
+        return tv.is_live_tv
+
+    assert live("livetv", "BBC One")
+    assert live("live_tv", None)
+    assert live("sourceswitch", "TV")
+    assert live("sourceswitch", " tv ")
+    assert live("sourceswitch", "DTV")
+    assert not live("app", "netflix")
+    assert not live("app", "Apple TV")          # an app whose name ends in "TV"
+    assert not live("sourceswitch", "HDMI1")
+    assert not live(None, None)
+    assert live(None, None, {"channel_num": "104"})
+
+    # The key list is a discoverability aid, not a whitelist.
+    assert "KEY_CHANNELUP" in const.KEYS and "KEY_CHANNELDOWN" in const.KEYS
+    assert all(k.startswith("KEY_") for k in const.KEYS), const.KEYS
+    assert len(set(const.KEYS)) == len(const.KEYS), "duplicate key"
+    for digit in "0123456789":
+        assert f"KEY_{digit}" in const.KEYS
 
     # App and source lookup: by name or url, case-insensitive, no false hits.
     assert tv.find_app("Netflix")["url"] == "netflix"

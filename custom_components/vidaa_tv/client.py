@@ -17,7 +17,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 import paho.mqtt.client as mqtt
 
-from .const import CLIENT_ID, DEFAULT_PORT, MQTT_PASSWORD, MQTT_USERNAME, OFF_STATE_MARKERS
+from .const import (
+    CLIENT_ID,
+    DEFAULT_PORT,
+    LIVE_TV_MARKERS,
+    MQTT_PASSWORD,
+    MQTT_USERNAME,
+    OFF_STATE_MARKERS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -131,6 +138,24 @@ class VidaaTV:
     def is_on(self) -> bool:
         state = (self.state_type or "").lower()
         return self.connected and not any(m in state for m in OFF_STATE_MARKERS)
+
+    @property
+    def is_live_tv(self) -> bool:
+        """True when the foreground is broadcast TV rather than an app or input.
+
+        Decides whether the media player's track buttons mean channel up/down
+        or fast-forward/rewind.
+        """
+        state = (self.state_type or "").lower()
+        if "livetv" in state or "live_tv" in state:
+            return True
+        if (self.current_name or "").strip().lower() in LIVE_TV_MARKERS:
+            return True
+        if state or self.current_name:
+            # The TV told us it is on something else — an app or an input.
+            return False
+        # Nothing known yet; a reported channel is the only remaining evidence.
+        return self.current_channel is not None
 
     def add_listener(self, callback: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(callback)
