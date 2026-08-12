@@ -138,11 +138,15 @@ class VidaaMediaPlayer(MediaPlayerEntity):
     async def async_media_stop(self) -> None:
         await self.hass.async_add_executor_job(self._tv.send_key, "KEY_STOP")
 
+    # Home Assistant has no dedicated channel control, so the track buttons are
+    # the only native home for channel up/down. Seek still wins inside apps.
     async def async_media_next_track(self) -> None:
-        await self.hass.async_add_executor_job(self._tv.send_key, "KEY_FORWARDS")
+        key = "KEY_CHANNELUP" if self._tv.is_live_tv else "KEY_FORWARDS"
+        await self.hass.async_add_executor_job(self._tv.send_key, key)
 
     async def async_media_previous_track(self) -> None:
-        await self.hass.async_add_executor_job(self._tv.send_key, "KEY_BACKS")
+        key = "KEY_CHANNELDOWN" if self._tv.is_live_tv else "KEY_BACKS"
+        await self.hass.async_add_executor_job(self._tv.send_key, key)
 
     async def async_select_source(self, source: str) -> None:
         if src := self._tv.find_source(source):
