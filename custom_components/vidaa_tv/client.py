@@ -120,6 +120,10 @@ class VidaaTV:
         self.apps: list[dict] = []
         self.channels: list[dict] = []
         self.current_channel: dict | None = None
+        # Whether the *latest* state broadcast named a channel. current_channel
+        # cannot answer that: it also holds the getcurrentchannel reply, which
+        # is never cleared when you switch to an app.
+        self.state_has_channel = False
         self.device_info: dict = {}
         self.auth_failed = False
         self._last_connack_rc: int | None = None
@@ -150,6 +154,10 @@ class VidaaTV:
         """
         state = (self.state_type or "").lower()
         if "livetv" in state or "live_tv" in state:
+            return True
+        if self.state_has_channel:
+            # The last state broadcast named a channel, so the tuner is in the
+            # foreground even if the statetype is something like "sourceswitch".
             return True
         if (self.current_name or "").strip().lower() in LIVE_TV_MARKERS:
             return True
@@ -217,11 +225,11 @@ class VidaaTV:
                 # Apps report "name"; input switches report "sourcename" instead.
                 self.current_name = data.get("name") or data.get("sourcename")
                 # Live TV reports the channel inline on some firmware.
-                if data.get("channel_name") or data.get("channelname"):
+                channel_name = data.get("channel_name") or data.get("channelname")
+                self.state_has_channel = bool(channel_name)
+                if channel_name:
                     self.current_channel = data
-                    self.current_name = (
-                        data.get("channel_name") or data.get("channelname")
-                    )
+                    self.current_name = channel_name
             elif "volumechange" in low:
                 self.volume = int(json.loads(payload)["volume_value"])
             elif low.endswith("/data/sourcelist"):

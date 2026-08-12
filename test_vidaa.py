@@ -136,6 +136,7 @@ def main():
     # Live TV detection drives which keys the track buttons send.
     def live(state_type, name, channel=None):
         tv.state_type, tv.current_name, tv.current_channel = state_type, name, channel
+        tv.state_has_channel = False
         return tv.is_live_tv
 
     assert live("livetv", "BBC One")
@@ -148,6 +149,22 @@ def main():
     assert not live("sourceswitch", "HDMI1")
     assert not live(None, None)
     assert live(None, None, {"channel_num": "104"})
+
+    # Firmware that reports the tuner via channel_name on a non-livetv
+    # statetype: parser and property together, through a real message.
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/broadcast/ui_service/state",
+        '{"statetype":"sourceswitch","channel_name":"BBC One","channel_num":"104"}'))
+    assert tv.state_has_channel is True
+    assert tv.current_name == "BBC One", tv.current_name
+    assert tv.is_live_tv, (tv.state_type, tv.current_name)
+
+    # Switching to an app clears it, even though current_channel is stale.
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/broadcast/ui_service/state",
+        '{"statetype":"app","name":"netflix","url":"netflix"}'))
+    assert tv.state_has_channel is False
+    assert not tv.is_live_tv, (tv.state_type, tv.current_channel)
 
     # The key list is a discoverability aid, not a whitelist.
     assert "KEY_CHANNELUP" in const.KEYS and "KEY_CHANNELDOWN" in const.KEYS
