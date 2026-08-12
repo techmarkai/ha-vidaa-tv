@@ -33,6 +33,12 @@ never connect to them. This one talks to the TV the way the TV actually answers.
 | **Raw access** | Publish any MQTT message to the TV |
 | **State** | Push. The TV broadcasts app, input and volume changes as they happen |
 
+- Survives the TV being switched off. The integration never fails setup on an
+  unreachable TV; it retries every 30 seconds and picks the TV back up on its
+  own, so no manual reload is ever needed.
+- Channel up/down on the media player's next/previous track buttons while
+  watching broadcast TV. Inside apps the same buttons seek as before.
+
 Entities created: `media_player.<name>` and `remote.<name>_remote`.
 
 ## Installation
@@ -126,16 +132,24 @@ data:
   delay_secs: 0.5
 ```
 
-Keys reported by VIDAA remotes. This is a starting point, **not** a whitelist —
-any string is passed through, so unlisted keys still work:
+The keys in the `vidaa_tv.send_key` dropdown are the ones VIDAA remotes are
+known to send — see `KEYS` in `custom_components/vidaa_tv/const.py` for the
+canonical list. It is a starting point, **not** a whitelist: any string is
+passed straight through, so unlisted keys still work.
 
-`KEY_POWER` `KEY_UP` `KEY_DOWN` `KEY_LEFT` `KEY_RIGHT` `KEY_OK` `KEY_BACK`
-`KEY_RETURNS` `KEY_HOME` `KEY_MENU` `KEY_EXIT` `KEY_VOLUMEUP` `KEY_VOLUMEDOWN`
-`KEY_MUTE` `KEY_CHANNELUP` `KEY_CHANNELDOWN` `KEY_0`–`KEY_9` `KEY_RED`
-`KEY_GREEN` `KEY_YELLOW` `KEY_BLUE` `KEY_PLAY` `KEY_PAUSE` `KEY_STOP`
-`KEY_FORWARDS` `KEY_BACKS` `KEY_INPUT` `KEY_SOURCE` `KEY_TV` `KEY_INFO`
-`KEY_GUIDE` `KEY_EPG` `KEY_SUBTITLE` `KEY_AUDIO` `KEY_FAV` `KEY_SETTINGS`
-`KEY_PICTURE` `KEY_SOUND` `KEY_SLEEP` `KEY_NETFLIX` `KEY_YOUTUBE`
+### `vidaa_tv.send_key`
+
+One key, with a dropdown of every known key in the UI — the discoverable way to
+find out what you can send. Any value is still accepted, so unlisted keys work.
+
+```yaml
+action: vidaa_tv.send_key
+data:
+  key: KEY_CHANNELUP
+```
+
+Use `remote.send_command` instead when you want a sequence, repeats, delays, or
+to target a specific TV by entity.
 
 ### `vidaa_tv.publish`
 
@@ -215,6 +229,11 @@ state back, so the flag can drift if you also use the physical remote.
 **The key list is a convenience, not a whitelist.** The TV never acknowledges
 keys, so the list in `const.py` cannot be verified exhaustively. Any key string
 you send is passed straight through.
+
+**The media player stays "off", not "unavailable".** While the TV is off, the
+media player reports `off` rather than `unavailable`, and its volume and
+source read as unknown. This is deliberate: it keeps `turn_on` callable so
+Wake-on-LAN automations still work.
 
 ## Development
 

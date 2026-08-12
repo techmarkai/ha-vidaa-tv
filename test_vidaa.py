@@ -220,6 +220,18 @@ def main():
     # The blocking verify path is gone; nothing may still reference it.
     assert not hasattr(offline, "_connect_and_verify")
 
+    # services.yaml cannot read Python, so the dropdown duplicates KEYS. Pin
+    # them together or the UI silently falls behind const.py.
+    yaml_text = (Path(__file__).parent / "custom_components" / "vidaa_tv"
+                 / "services.yaml").read_text(encoding="utf-8")
+    dropdown = [line.strip().lstrip("- ") for line in yaml_text.splitlines()
+                if line.strip().startswith("- KEY_")]
+    assert dropdown == list(const.KEYS), (
+        f"services.yaml dropdown is out of sync with const.KEYS\n"
+        f"  only in yaml: {sorted(set(dropdown) - set(const.KEYS))}\n"
+        f"  only in KEYS: {sorted(set(const.KEYS) - set(dropdown))}"
+    )
+
     print("all checks passed")
 
 
