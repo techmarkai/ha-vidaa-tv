@@ -123,11 +123,11 @@ class VidaaTV:
         self.device_info: dict = {}
 
         self._listeners: list[Callable[[], None]] = []
-        self._connack: int | None = None
-        self._answered = threading.Event()
         self._client = _new_client(CLIENT_ID)
         self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-        self._client.reconnect_delay_set(min_delay=1, max_delay=60)
+        # Flat 30s, no backoff: a TV switched back on appears within 30 seconds
+        # instead of waiting out a growing delay. One cheap LAN connect per 30s.
+        self._client.reconnect_delay_set(min_delay=30, max_delay=30)
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
@@ -169,8 +169,6 @@ class VidaaTV:
     # ------------------------------------------------------------ callbacks
 
     def _on_connect(self, client, _userdata, _flags, rc):
-        self._connack = rc
-        self._answered.set()
         if rc != 0:
             _LOGGER.error("TV %s rejected connection: %s", self.host, mqtt.connack_string(rc))
             return
@@ -332,28 +330,14 @@ class VidaaTV:
     # ------------------------------------------------------------ lifecycle
 
     async def async_start(self) -> None:
-        """Connect, and confirm the TV accepted us before reporting success."""
-        await self.hass.async_add_executor_job(self._connect_and_verify)
+        """Begin connecting. Returns immediately and never raises.
 
-    def _connect_and_verify(self) -> None:
-        """Blocking connect that surfaces refusal instead of retrying silently."""
-        try:
-            self._client.connect(self.host, self.port, 30)
-        except OSError as err:
-            raise VidaaError(f"cannot reach {self.host}:{self.port} ({err})") from err
-
-        self._answered.clear()
+        connect_async only records the address — no I/O happens here — and the
+        network thread retries every 30s forever. A TV that is off is a normal
+        state, not a setup failure, so nothing here reports one.
+        """
+        self._client.connect_async(self.host, self.port, 30)
         self._client.loop_start()
-        try:
-            if not self._answered.wait(15):
-                raise VidaaError("TV accepted the socket but never sent an MQTT CONNACK")
-            if self._connack == 5:
-                raise VidaaAuthError("TV rejected the credentials")
-            if self._connack != 0:
-                raise VidaaError(mqtt.connack_string(self._connack))
-        except VidaaError:
-            self._client.loop_stop()
-            raise
 
     def ping(self) -> None:
         """Watchdog tick: force a reconnect if paho's own retry loop stalled.

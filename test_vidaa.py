@@ -3,6 +3,7 @@
 Loads client.py directly so Home Assistant does not need to be installed.
 """
 
+import asyncio
 import importlib.util
 import json
 import sys
@@ -206,6 +207,18 @@ def main():
     assert reconnects == [1], reconnects
     tv._client.reconnect = lambda: (_ for _ in ()).throw(OSError("in flight"))
     tv.ping()  # must not raise
+
+    # Startup must not block on the TV. connect_async performs no I/O, so a
+    # TV that is off or unplugged costs nothing at setup time.
+    calls = []
+    offline = client.VidaaTV(FakeHass(), "10.0.0.9")
+    offline._client.connect_async = lambda h, p, k: calls.append(("connect", h, p, k))
+    offline._client.loop_start = lambda: calls.append(("loop",))
+    asyncio.run(offline.async_start())
+    assert calls == [("connect", "10.0.0.9", 36669, 30), ("loop",)], calls
+
+    # The blocking verify path is gone; nothing may still reference it.
+    assert not hasattr(offline, "_connect_and_verify")
 
     print("all checks passed")
 
