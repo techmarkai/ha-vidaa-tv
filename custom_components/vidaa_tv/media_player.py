@@ -99,13 +99,15 @@ class VidaaMediaPlayer(MediaPlayerEntity):
             changes["sw_version"] = sw_version
         if not changes:
             return
-        self._attr_device_info.update(changes)
         registry = dr.async_get(self.hass)
         device = registry.async_get_device(
             identifiers=self._attr_device_info["identifiers"]
         )
         if device:
             registry.async_update_device(device.id, **changes)
+            # Only now are the new values really registered; updating earlier
+            # would make the guard above skip a retry if the lookup failed.
+            self._attr_device_info.update(changes)
 
     # ----------------------------------------------------------------- state
 
