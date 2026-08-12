@@ -6,6 +6,7 @@ Loads client.py directly so Home Assistant does not need to be installed.
 import asyncio
 import importlib.util
 import json
+import logging
 import sys
 import types
 from pathlib import Path
@@ -218,8 +219,33 @@ def main():
     class _Dropped:
         rc = 4  # MQTT_ERR_NO_CONN
 
-    tv._client.publish = lambda topic, payload: _Dropped()
-    tv.send_key("KEY_MUTE")  # must not raise
+    class _Collector(logging.Handler):
+        records = []
+
+        def emit(self, record):
+            self.records.append(record)
+
+    handler = _Collector()
+    client._LOGGER.addHandler(handler)
+    client._LOGGER.setLevel(logging.DEBUG)
+    try:
+        tv._client.publish = lambda topic, payload: _Dropped()
+        tv.send_key("KEY_MUTE")  # must not raise
+        assert len(handler.records) == 1, handler.records
+        record = handler.records[0]
+        assert record.levelno == logging.WARNING, record.levelname
+        assert "not delivered" in record.getMessage(), record.getMessage()
+        assert "/actions/sendkey" in record.getMessage(), record.getMessage()
+
+        # After an auth rejection the real cause was already logged at ERROR;
+        # every later drop is noise, so it must fall to DEBUG.
+        handler.records.clear()
+        tv.auth_failed = True
+        tv.send_key("KEY_MUTE")
+        assert [r.levelno for r in handler.records] == [logging.DEBUG], handler.records
+        tv.auth_failed = False
+    finally:
+        client._LOGGER.removeHandler(handler)
     tv._client.publish = lambda topic, payload: sent.append((topic, payload))
 
     # The watchdog restarts paho's network loop only when its thread is gone.
