@@ -55,14 +55,19 @@ In `test_vidaa.py`, inside `main()`, immediately after the existing `is_on` bloc
     assert live(None, None, {"channel_num": "104"})
 
     # The key list is a discoverability aid, not a whitelist.
-    assert "KEY_CHANNELUP" in client.KEYS and "KEY_CHANNELDOWN" in client.KEYS
-    assert all(k.startswith("KEY_") for k in client.KEYS), client.KEYS
-    assert len(set(client.KEYS)) == len(client.KEYS), "duplicate key"
+    assert "KEY_CHANNELUP" in const.KEYS and "KEY_CHANNELDOWN" in const.KEYS
+    assert all(k.startswith("KEY_") for k in const.KEYS), const.KEYS
+    assert len(set(const.KEYS)) == len(const.KEYS), "duplicate key"
     for digit in "0123456789":
-        assert f"KEY_{digit}" in client.KEYS
+        assert f"KEY_{digit}" in const.KEYS
 ```
 
-Note: `client.KEYS` works because `client.py` imports `KEYS` from `const` in Step 4.
+`const` is not yet in scope in this file. Add it next to the existing `client = _load()` line near the top, so both modules `_load()` already put in `sys.modules` are reachable:
+
+```python
+client = _load()
+const = sys.modules["vt.const"]
+```
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -100,13 +105,12 @@ KEYS = (
 
 - [ ] **Step 4: Add the property**
 
-In `custom_components/vidaa_tv/client.py`, extend the existing import at line 20 to bring in the new names:
+In `custom_components/vidaa_tv/client.py`, extend the existing import at line 20 to bring in `LIVE_TV_MARKERS`:
 
 ```python
 from .const import (
     CLIENT_ID,
     DEFAULT_PORT,
-    KEYS,
     LIVE_TV_MARKERS,
     MQTT_PASSWORD,
     MQTT_USERNAME,
@@ -114,11 +118,7 @@ from .const import (
 )
 ```
 
-`KEYS` is imported but unused inside `client.py` — that is deliberate, so `test_vidaa.py` and the rest of the integration can reach it through the client module. Add a re-export marker so linters do not strip it, directly under the import block:
-
-```python
-__all__ = ["KEYS", "VidaaError", "VidaaAuthError", "VidaaTV", "scan", "test_connection"]
-```
+`KEYS` is deliberately **not** imported here — `client.py` has no use for it. Its consumers are `__init__.py` (Task 4) and `test_vidaa.py`, both of which read it from `const` directly.
 
 Then add the property in `client.py` directly below the existing `is_on` property:
 
@@ -593,37 +593,14 @@ git commit -m "Add a send_key service with a dropdown of every known key"
 
 **Files:**
 - Modify: `custom_components/vidaa_tv/media_player.py:145-149`
-- Test: `test_vidaa.py`
 
 **Interfaces:**
 - Consumes: `VidaaTV.is_live_tv` from Task 1.
 - Produces: no new symbols.
 
-- [ ] **Step 1: Write the failing test**
+**No new test.** `media_player.py` cannot be imported without Home Assistant, and the only logic here is a ternary over `is_live_tv`, which Task 1 already covers exhaustively. A test that re-implemented the same ternary in `test_vidaa.py` would pass even if the entity were wired up wrong, so Step 3 below is the real gate.
 
-The media player cannot be imported without Home Assistant, so the test pins the *decision*, expressed exactly as the entity will express it. Add this to `test_vidaa.py` in `main()`, directly after the live-TV block from Task 1:
-
-```python
-    # The track buttons mean channel up/down on broadcast TV and seek elsewhere.
-    # This mirrors media_player.async_media_next_track / _previous_track.
-    def next_key():
-        return "KEY_CHANNELUP" if tv.is_live_tv else "KEY_FORWARDS"
-
-    def prev_key():
-        return "KEY_CHANNELDOWN" if tv.is_live_tv else "KEY_BACKS"
-
-    tv.state_type, tv.current_name, tv.current_channel = "livetv", "BBC One", None
-    assert (next_key(), prev_key()) == ("KEY_CHANNELUP", "KEY_CHANNELDOWN")
-    tv.state_type, tv.current_name = "app", "netflix"
-    assert (next_key(), prev_key()) == ("KEY_FORWARDS", "KEY_BACKS")
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `python test_vidaa.py`
-Expected: passes only if Task 1 landed. If Task 1 is complete this test passes immediately — it is a characterization test for the rule the entity implements in Step 3, and its job is to fail loudly if `is_live_tv` is ever changed underneath the media player.
-
-- [ ] **Step 3: Wire it into the media player**
+- [ ] **Step 1: Wire it into the media player**
 
 In `custom_components/vidaa_tv/media_player.py`, replace:
 
@@ -649,19 +626,19 @@ with:
         await self.hass.async_add_executor_job(self._tv.send_key, key)
 ```
 
-- [ ] **Step 4: Run the self-check**
+- [ ] **Step 2: Run the self-check**
 
 Run: `python test_vidaa.py`
 Expected: `all checks passed`
 
-- [ ] **Step 5: Verify against the real TV**
+- [ ] **Step 3: Verify against the real TV**
 
 With the TV on a broadcast channel, press next/previous track on the media player card and confirm the channel changes. Switch to Netflix or YouTube and confirm the same buttons now seek instead.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add custom_components/vidaa_tv/media_player.py test_vidaa.py
+git add custom_components/vidaa_tv/media_player.py
 git commit -m "Make the track buttons change channel while watching live TV"
 ```
 
@@ -689,10 +666,10 @@ The `KEYS` tuple and the `services.yaml` dropdown are the same list in two langu
                  / "services.yaml").read_text(encoding="utf-8")
     dropdown = [line.strip().lstrip("- ") for line in yaml_text.splitlines()
                 if line.strip().startswith("- KEY_")]
-    assert dropdown == list(client.KEYS), (
+    assert dropdown == list(const.KEYS), (
         f"services.yaml dropdown is out of sync with const.KEYS\n"
-        f"  only in yaml: {sorted(set(dropdown) - set(client.KEYS))}\n"
-        f"  only in KEYS: {sorted(set(client.KEYS) - set(dropdown))}"
+        f"  only in yaml: {sorted(set(dropdown) - set(const.KEYS))}\n"
+        f"  only in KEYS: {sorted(set(const.KEYS) - set(dropdown))}"
     )
 ```
 
