@@ -277,8 +277,14 @@ class VidaaTV:
         result = self._client.publish(topic, payload)
         rc = getattr(result, "rc", mqtt.MQTT_ERR_SUCCESS)
         if rc != mqtt.MQTT_ERR_SUCCESS:
-            _LOGGER.warning(
-                "Command to %s was dropped (%s); the TV is probably off",
+            # Not necessarily a fault: async_turn_on deliberately sends KEY_POWER
+            # after Wake-on-LAN, which is always dropped. And once auth_failed is
+            # set the real problem was already reported at ERROR, so every drop
+            # after that is noise.
+            level = logging.DEBUG if self.auth_failed else logging.WARNING
+            _LOGGER.log(
+                level,
+                "Command to %s was not delivered: the client is not connected (%s)",
                 topic, mqtt.error_string(rc),
             )
 
