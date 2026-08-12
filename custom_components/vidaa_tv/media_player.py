@@ -17,6 +17,7 @@ from homeassistant.components.media_player import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -66,14 +67,45 @@ class VidaaMediaPlayer(MediaPlayerEntity):
             identifiers={(DOMAIN, self._attr_unique_id)},
             name=entry.title,
             manufacturer="VIDAA",
-            # refresh() runs on connect, so the real model is usually known by
-            # the time entities are added.
+            # Setup no longer waits for the TV, so with the TV off this is all
+            # we have. _handle_update corrects the registry once the real
+            # values arrive.
             model=tv.device_info.get("model") or "Smart TV",
             sw_version=tv.device_info.get("firmware") or tv.device_info.get("version"),
         )
 
     async def async_added_to_hass(self) -> None:
-        self.async_on_remove(self._tv.add_listener(self.async_write_ha_state))
+        self.async_on_remove(self._tv.add_listener(self._handle_update))
+
+    def _handle_update(self) -> None:
+        self._sync_device_registry()
+        self.async_write_ha_state()
+
+    def _sync_device_registry(self) -> None:
+        """Push a late-arriving model/firmware into the device registry.
+
+        DeviceInfo is only read when the entity is added, so a TV that was off
+        at startup would otherwise show "Smart TV" until the next restart.
+        """
+        info = self._tv.device_info
+        if not info:
+            return
+        model = info.get("model")
+        sw_version = info.get("firmware") or info.get("version")
+        changes = {}
+        if model and model != self._attr_device_info.get("model"):
+            changes["model"] = model
+        if sw_version and sw_version != self._attr_device_info.get("sw_version"):
+            changes["sw_version"] = sw_version
+        if not changes:
+            return
+        self._attr_device_info.update(changes)
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(
+            identifiers=self._attr_device_info["identifiers"]
+        )
+        if device:
+            registry.async_update_device(device.id, **changes)
 
     # ----------------------------------------------------------------- state
 
