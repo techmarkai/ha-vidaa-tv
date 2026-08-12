@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 
 import voluptuous as vol
 
@@ -11,6 +12,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.event import async_track_time_interval
 
 from .client import VidaaError, VidaaTV
 from .const import CONF_MAC, DEFAULT_PORT, DOMAIN, SERVICES
@@ -18,6 +20,10 @@ from .const import CONF_MAC, DEFAULT_PORT, DOMAIN, SERVICES
 PLATFORMS = [Platform.MEDIA_PLAYER, Platform.REMOTE]
 
 ATTR_ENTRY_ID = "entry_id"
+
+# Longer than paho's own 60s max backoff, so the watchdog only ever fires when
+# paho's retry loop has genuinely stopped rather than racing it every tick.
+WATCHDOG_INTERVAL = timedelta(seconds=90)
 
 SERVICE_NAMES = ("publish", "send_text", "refresh")
 
@@ -54,6 +60,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(f"Cannot reach VIDAA TV at {host}:{port}: {err}") from err
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = tv
+
+    async def _watchdog(_now) -> None:
+        await hass.async_add_executor_job(tv.ping)
+
+    entry.async_on_unload(
+        async_track_time_interval(hass, _watchdog, WATCHDOG_INTERVAL)
+    )
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_register_services(hass)
     return True

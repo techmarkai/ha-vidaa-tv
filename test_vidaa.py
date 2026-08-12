@@ -171,6 +171,18 @@ def main():
         "urlType": 36, "storeType": 0,
     }, payload
 
+    # Watchdog only reconnects while disconnected, and swallows a racing paho.
+    reconnects = []
+    tv._client.reconnect = lambda: reconnects.append(1)
+    tv.connected = True
+    tv.ping()
+    assert reconnects == [], reconnects
+    tv.connected = False
+    tv.ping()
+    assert reconnects == [1], reconnects
+    tv._client.reconnect = lambda: (_ for _ in ()).throw(OSError("in flight"))
+    tv.ping()  # must not raise
+
     print("all checks passed")
 
 

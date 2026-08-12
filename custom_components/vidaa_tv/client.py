@@ -330,6 +330,20 @@ class VidaaTV:
             self._client.loop_stop()
             raise
 
+    def ping(self) -> None:
+        """Watchdog tick: force a reconnect if paho's own retry loop stalled.
+
+        paho normally reconnects on its own; this only matters when its network
+        thread has died or wedged, which leaves the entities unavailable forever
+        with nothing retrying. Blocking.
+        """
+        if self.connected:
+            return
+        _LOGGER.debug("Watchdog: TV %s still disconnected, forcing reconnect", self.host)
+        # Racing paho's own in-flight reconnect just raises; that is harmless.
+        with contextlib.suppress(OSError, ValueError):
+            self._client.reconnect()
+
     async def async_stop(self) -> None:
         self._client.loop_stop()
         await self.hass.async_add_executor_job(self._client.disconnect)
