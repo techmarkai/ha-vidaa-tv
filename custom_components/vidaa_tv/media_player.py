@@ -17,6 +17,7 @@ from homeassistant.components.media_player import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -66,20 +67,49 @@ class VidaaMediaPlayer(MediaPlayerEntity):
             identifiers={(DOMAIN, self._attr_unique_id)},
             name=entry.title,
             manufacturer="VIDAA",
-            # refresh() runs on connect, so the real model is usually known by
-            # the time entities are added.
+            # Setup no longer waits for the TV, so with the TV off this is all
+            # we have. _handle_update corrects the registry once the real
+            # values arrive.
             model=tv.device_info.get("model") or "Smart TV",
             sw_version=tv.device_info.get("firmware") or tv.device_info.get("version"),
         )
 
     async def async_added_to_hass(self) -> None:
-        self.async_on_remove(self._tv.add_listener(self.async_write_ha_state))
+        self.async_on_remove(self._tv.add_listener(self._handle_update))
+
+    def _handle_update(self) -> None:
+        self._sync_device_registry()
+        self.async_write_ha_state()
+
+    def _sync_device_registry(self) -> None:
+        """Push a late-arriving model/firmware into the device registry.
+
+        DeviceInfo is only read when the entity is added, so a TV that was off
+        at startup would otherwise show "Smart TV" until the next restart.
+        """
+        info = self._tv.device_info
+        if not info:
+            return
+        model = info.get("model")
+        sw_version = info.get("firmware") or info.get("version")
+        changes = {}
+        if model and model != self._attr_device_info.get("model"):
+            changes["model"] = model
+        if sw_version and sw_version != self._attr_device_info.get("sw_version"):
+            changes["sw_version"] = sw_version
+        if not changes:
+            return
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(
+            identifiers=self._attr_device_info["identifiers"]
+        )
+        if device:
+            registry.async_update_device(device.id, **changes)
+            # Only now are the new values really registered; updating earlier
+            # would make the guard above skip a retry if the lookup failed.
+            self._attr_device_info.update(changes)
 
     # ----------------------------------------------------------------- state
-
-    @property
-    def available(self) -> bool:
-        return self._tv.connected
 
     @property
     def state(self) -> MediaPlayerState:
@@ -88,13 +118,13 @@ class VidaaMediaPlayer(MediaPlayerEntity):
 
     @property
     def volume_level(self) -> float | None:
-        if self._tv.volume is None:
+        if not self._tv.connected or self._tv.volume is None:
             return None
         return self._tv.volume / 100
 
     @property
     def is_volume_muted(self) -> bool:
-        return self._tv.muted
+        return self._tv.connected and self._tv.muted
 
     @property
     def source_list(self) -> list[str]:
@@ -104,7 +134,7 @@ class VidaaMediaPlayer(MediaPlayerEntity):
 
     @property
     def source(self) -> str | None:
-        return self._tv.current_name
+        return self._tv.current_name if self._tv.connected else None
 
     # -------------------------------------------------------------- commands
 
@@ -142,11 +172,15 @@ class VidaaMediaPlayer(MediaPlayerEntity):
     async def async_media_stop(self) -> None:
         await self.hass.async_add_executor_job(self._tv.send_key, "KEY_STOP")
 
+    # Home Assistant has no dedicated channel control, so the track buttons are
+    # the only native home for channel up/down. Seek still wins inside apps.
     async def async_media_next_track(self) -> None:
-        await self.hass.async_add_executor_job(self._tv.send_key, "KEY_FORWARDS")
+        key = "KEY_CHANNELUP" if self._tv.is_live_tv else "KEY_FORWARDS"
+        await self.hass.async_add_executor_job(self._tv.send_key, key)
 
     async def async_media_previous_track(self) -> None:
-        await self.hass.async_add_executor_job(self._tv.send_key, "KEY_BACKS")
+        key = "KEY_CHANNELDOWN" if self._tv.is_live_tv else "KEY_BACKS"
+        await self.hass.async_add_executor_job(self._tv.send_key, key)
 
     async def async_select_source(self, source: str) -> None:
         if src := self._tv.find_source(source):

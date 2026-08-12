@@ -41,10 +41,6 @@ class VidaaRemote(RemoteEntity):
         self.async_on_remove(self._tv.add_listener(self.async_write_ha_state))
 
     @property
-    def available(self) -> bool:
-        return self._tv.connected
-
-    @property
     def is_on(self) -> bool:
         return self._tv.is_on
 

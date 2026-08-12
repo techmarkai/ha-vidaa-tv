@@ -10,3 +10,6 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+
+# Subagent-driven-development scratch (session-local, not project state)
+.superpowers/

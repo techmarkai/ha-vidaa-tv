@@ -17,7 +17,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 import paho.mqtt.client as mqtt
 
-from .const import CLIENT_ID, DEFAULT_PORT, MQTT_PASSWORD, MQTT_USERNAME, OFF_STATE_MARKERS
+from .const import (
+    CLIENT_ID,
+    DEFAULT_PORT,
+    LIVE_TV_MARKERS,
+    MQTT_PASSWORD,
+    MQTT_USERNAME,
+    OFF_STATE_MARKERS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -113,14 +120,20 @@ class VidaaTV:
         self.apps: list[dict] = []
         self.channels: list[dict] = []
         self.current_channel: dict | None = None
+        # Whether the *latest* state broadcast named a channel. current_channel
+        # cannot answer that: it also holds the getcurrentchannel reply, which
+        # is never cleared when you switch to an app.
+        self.state_has_channel = False
         self.device_info: dict = {}
+        self.auth_failed = False
+        self._last_connack_rc: int | None = None
 
         self._listeners: list[Callable[[], None]] = []
-        self._connack: int | None = None
-        self._answered = threading.Event()
         self._client = _new_client(CLIENT_ID)
         self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-        self._client.reconnect_delay_set(min_delay=1, max_delay=60)
+        # Flat 30s, no backoff: a TV switched back on appears within 30 seconds
+        # instead of waiting out a growing delay. One cheap LAN connect per 30s.
+        self._client.reconnect_delay_set(min_delay=30, max_delay=30)
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
@@ -131,6 +144,28 @@ class VidaaTV:
     def is_on(self) -> bool:
         state = (self.state_type or "").lower()
         return self.connected and not any(m in state for m in OFF_STATE_MARKERS)
+
+    @property
+    def is_live_tv(self) -> bool:
+        """True when the foreground is broadcast TV rather than an app or input.
+
+        Decides whether the media player's track buttons mean channel up/down
+        or fast-forward/rewind.
+        """
+        state = (self.state_type or "").lower()
+        if "livetv" in state or "live_tv" in state:
+            return True
+        if self.state_has_channel:
+            # The last state broadcast named a channel, so the tuner is in the
+            # foreground even if the statetype is something like "sourceswitch".
+            return True
+        if (self.current_name or "").strip().lower() in LIVE_TV_MARKERS:
+            return True
+        if state or self.current_name:
+            # The TV told us it is on something else — an app or an input.
+            return False
+        # Nothing known yet; a reported channel is the only remaining evidence.
+        return self.current_channel is not None
 
     def add_listener(self, callback: Callable[[], None]) -> Callable[[], None]:
         self._listeners.append(callback)
@@ -144,11 +179,31 @@ class VidaaTV:
     # ------------------------------------------------------------ callbacks
 
     def _on_connect(self, client, _userdata, _flags, rc):
-        self._connack = rc
-        self._answered.set()
         if rc != 0:
-            _LOGGER.error("TV %s rejected connection: %s", self.host, mqtt.connack_string(rc))
+            if rc == 5:
+                # Not recoverable: the firmware now wants PIN pairing, which we
+                # do not implement. Log once and stop, rather than 2,880 ERROR
+                # lines a day against a TV that will never let us in.
+                if not self.auth_failed:
+                    self.auth_failed = True
+                    _LOGGER.error(
+                        "TV %s rejected our credentials. This firmware requires PIN "
+                        "pairing, which this integration does not support. Giving up; "
+                        "remove the VIDAA TV config entry for %s.",
+                        self.host, self.host,
+                    )
+                with contextlib.suppress(OSError, ValueError):
+                    client.disconnect()
+                return
+            # Log a persistent failure only when it changes; otherwise every
+            # 30s reconnect writes the same ERROR forever.
+            if rc != self._last_connack_rc:
+                _LOGGER.error(
+                    "TV %s rejected connection: %s", self.host, mqtt.connack_string(rc)
+                )
+            self._last_connack_rc = rc
             return
+        self._last_connack_rc = 0
         self.connected = True
         client.subscribe("/remoteapp/mobile/broadcast/#")
         client.subscribe(f"/remoteapp/mobile/{CLIENT_ID}/#")
@@ -170,11 +225,11 @@ class VidaaTV:
                 # Apps report "name"; input switches report "sourcename" instead.
                 self.current_name = data.get("name") or data.get("sourcename")
                 # Live TV reports the channel inline on some firmware.
-                if data.get("channel_name") or data.get("channelname"):
+                channel_name = data.get("channel_name") or data.get("channelname")
+                self.state_has_channel = bool(channel_name)
+                if channel_name:
                     self.current_channel = data
-                    self.current_name = (
-                        data.get("channel_name") or data.get("channelname")
-                    )
+                    self.current_name = channel_name
             elif "volumechange" in low:
                 self.volume = int(json.loads(payload)["volume_value"])
             elif low.endswith("/data/sourcelist"):
@@ -212,6 +267,27 @@ class VidaaTV:
     def _topic(self, service: str, action: str) -> str:
         return f"/remoteapp/tv/{service}/{CLIENT_ID}/actions/{action}"
 
+    def _publish(self, topic: str, payload: str = "") -> None:
+        """Publish and say so when it went nowhere.
+
+        Entities stay available while the TV is off, so without this a service
+        call against a sleeping TV succeeds silently and does nothing: at QoS 0
+        with no connection paho drops the message and only reports it here.
+        """
+        result = self._client.publish(topic, payload)
+        rc = getattr(result, "rc", mqtt.MQTT_ERR_SUCCESS)
+        if rc != mqtt.MQTT_ERR_SUCCESS:
+            # Not necessarily a fault: async_turn_on deliberately sends KEY_POWER
+            # after Wake-on-LAN, which is always dropped. And once auth_failed is
+            # set the real problem was already reported at ERROR, so every drop
+            # after that is noise.
+            level = logging.DEBUG if self.auth_failed else logging.WARNING
+            _LOGGER.log(
+                level,
+                "Command to %s was not delivered: the client is not connected (%s)",
+                topic, mqtt.error_string(rc),
+            )
+
     def find_app(self, wanted: str) -> dict | None:
         """Match an app by display name or url, case-insensitively."""
         target = wanted.strip().lower()
@@ -241,11 +317,11 @@ class VidaaTV:
     def publish_raw(self, topic: str, payload: str = "") -> None:
         """Escape hatch: publish any topic, for protocol bits not modelled here."""
         _LOGGER.debug("Publishing raw to %s: %s", topic, payload)
-        self._client.publish(topic, payload)
+        self._publish(topic, payload)
 
     def publish_action(self, service: str, action: str, payload: str = "") -> None:
         """Publish to /remoteapp/tv/<service>/<client>/actions/<action>."""
-        self._client.publish(self._topic(service, action), payload)
+        self._publish(self._topic(service, action), payload)
 
     def refresh(self) -> None:
         """Ask for everything the TV is willing to describe about itself.
@@ -257,12 +333,12 @@ class VidaaTV:
             "sourcelist", "applist", "getdeviceinfo",
             "gettvchannellist", "getcurrentchannel",
         ):
-            self._client.publish(self._topic("ui_service", action), "")
-        self._client.publish(self._topic("platform_service", "getdeviceinfo"), "")
+            self._publish(self._topic("ui_service", action), "")
+        self._publish(self._topic("platform_service", "getdeviceinfo"), "")
 
     def send_text(self, text: str) -> None:
         """Type into whatever field the TV has focused (search boxes, logins)."""
-        self._client.publish(
+        self._publish(
             self._topic("ui_service", "sendtext"), json.dumps({"text": text})
         )
 
@@ -271,17 +347,17 @@ class VidaaTV:
         key = key.strip().upper()
         if not key.startswith("KEY_"):
             key = f"KEY_{key}"
-        self._client.publish(self._topic("remote_service", "sendkey"), key)
+        self._publish(self._topic("remote_service", "sendkey"), key)
 
     def set_volume(self, volume: int) -> None:
         volume = max(0, min(100, int(volume)))
-        self._client.publish(self._topic("platform_service", "changevolume"), str(volume))
+        self._publish(self._topic("platform_service", "changevolume"), str(volume))
 
     def launch_app(self, app: dict) -> None:
-        self._client.publish(self._topic("ui_service", "launchapp"), json.dumps(app))
+        self._publish(self._topic("ui_service", "launchapp"), json.dumps(app))
 
     def select_source(self, source_id: str) -> None:
-        self._client.publish(
+        self._publish(
             self._topic("ui_service", "changesource"),
             json.dumps({"sourceid": str(source_id)}),
         )
@@ -307,42 +383,45 @@ class VidaaTV:
     # ------------------------------------------------------------ lifecycle
 
     async def async_start(self) -> None:
-        """Connect, and confirm the TV accepted us before reporting success."""
-        await self.hass.async_add_executor_job(self._connect_and_verify)
+        """Begin connecting. Returns immediately and never raises.
 
-    def _connect_and_verify(self) -> None:
-        """Blocking connect that surfaces refusal instead of retrying silently."""
-        try:
-            self._client.connect(self.host, self.port, 30)
-        except OSError as err:
-            raise VidaaError(f"cannot reach {self.host}:{self.port} ({err})") from err
-
-        self._answered.clear()
+        connect_async only records the address — no I/O happens here — and the
+        network thread retries every 30s forever. A TV that is off is a normal
+        state, not a setup failure, so nothing here reports one.
+        """
+        self._client.connect_async(self.host, self.port, 30)
         self._client.loop_start()
-        try:
-            if not self._answered.wait(15):
-                raise VidaaError("TV accepted the socket but never sent an MQTT CONNACK")
-            if self._connack == 5:
-                raise VidaaAuthError("TV rejected the credentials")
-            if self._connack != 0:
-                raise VidaaError(mqtt.connack_string(self._connack))
-        except VidaaError:
-            self._client.loop_stop()
-            raise
 
     def ping(self) -> None:
-        """Watchdog tick: force a reconnect if paho's own retry loop stalled.
+        """Watchdog tick: restart paho's network loop if its thread has died.
 
-        paho normally reconnects on its own; this only matters when its network
-        thread has died or wedged, which leaves the entities unavailable forever
-        with nothing retrying. Blocking.
+        A disconnected TV is the normal steady state here, so "not connected"
+        alone is no reason to act — paho is already retrying every 30s. The one
+        failure this exists to catch is that thread being gone (an exception
+        escaping a callback kills it permanently), which leaves nothing
+        retrying at all. `_thread` is private, but it *is* the invariant; there
+        is no public equivalent.
+
+        loop_stop() joins the dead thread and clears paho's stale `_thread`
+        reference — without it loop_start() returns MQTT_ERR_INVAL and does
+        nothing. loop_start() then re-enters loop_forever(), which
+        re-establishes the connection itself, so no explicit reconnect() is
+        needed (reconnect() alone would never help: it sends CONNECT but leaves
+        nobody to read the CONNACK). A TV that rejected our credentials is
+        deliberately left alone entirely — its thread was stopped on purpose.
+        Blocking, briefly, in the join.
         """
-        if self.connected:
+        if self.connected or self.auth_failed:
             return
-        _LOGGER.debug("Watchdog: TV %s still disconnected, forcing reconnect", self.host)
-        # Racing paho's own in-flight reconnect just raises; that is harmless.
+        thread = getattr(self._client, "_thread", None)
+        if thread is not None and thread.is_alive():
+            return  # paho's own retry loop is running; leave it alone.
+        _LOGGER.debug(
+            "Watchdog: paho's thread is gone for %s, restarting its loop", self.host
+        )
         with contextlib.suppress(OSError, ValueError):
-            self._client.reconnect()
+            self._client.loop_stop()
+            self._client.loop_start()
 
     async def async_stop(self) -> None:
         self._client.loop_stop()

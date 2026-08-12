@@ -10,26 +10,36 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
 
-from .client import VidaaError, VidaaTV
+from .client import VidaaTV
 from .const import CONF_MAC, DEFAULT_PORT, DOMAIN, SERVICES
 
 PLATFORMS = [Platform.MEDIA_PLAYER, Platform.REMOTE]
 
 ATTR_ENTRY_ID = "entry_id"
 
-# Longer than paho's own 60s max backoff, so the watchdog only ever fires when
-# paho's retry loop has genuinely stopped rather than racing it every tick.
+# Watchdog cadence. Ordinary reconnects are paho's job, and ping() bails out
+# unless paho's network thread is actually dead — a disconnected TV on its own
+# is not enough, since reconnect() racing that thread is unsafe.
 WATCHDOG_INTERVAL = timedelta(seconds=90)
 
-SERVICE_NAMES = ("publish", "send_text", "refresh")
+SERVICE_NAMES = ("publish", "send_key", "send_text", "refresh")
 
 SEND_TEXT_SCHEMA = vol.Schema(
     {
         vol.Required("text"): cv.string,
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+    }
+)
+
+# cv.string, deliberately not vol.In(KEYS): KEYS drives the UI dropdown, but a
+# key must never be blocked just because this integration has not heard of it.
+SEND_KEY_SCHEMA = vol.Schema(
+    {
+        vol.Required("key"): cv.string,
         vol.Optional(ATTR_ENTRY_ID): cv.string,
     }
 )
@@ -50,14 +60,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data[CONF_HOST]
     port = entry.data.get(CONF_PORT, DEFAULT_PORT)
 
-    # async_start verifies the CONNACK on the connection it already opens, so a
-    # firewall or a sleeping TV fails here with a reason instead of sitting in a
-    # silent reconnect loop.
+    # Setup never fails on an unreachable TV. A TV that is off, unplugged or
+    # behind a dead switch is a normal state, not a broken config entry — the
+    # client retries in the background and the entities report "off" meanwhile.
     tv = VidaaTV(hass, host, port, entry.data.get(CONF_MAC))
-    try:
-        await tv.async_start()
-    except VidaaError as err:
-        raise ConfigEntryNotReady(f"Cannot reach VIDAA TV at {host}:{port}: {err}") from err
+    await tv.async_start()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = tv
 
@@ -88,9 +95,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register the raw-protocol services once.
 
-    Key sending is deliberately not a service here — remote.send_command on the
-    remote entity is the Home Assistant native way, and supports targeting,
-    repeats and delays for free.
+    send_key exists for discoverability — its dropdown lists every known key.
+    remote.send_command on the remote entity remains the richer path: it takes
+    a sequence of keys with repeats and delays, and supports entity targeting.
     """
     if hass.services.has_service(DOMAIN, "publish"):
         return
@@ -131,7 +138,12 @@ def _async_register_services(hass: HomeAssistant) -> None:
         tv = _resolve(call)
         await hass.async_add_executor_job(tv.send_text, call.data["text"])
 
+    async def _send_key(call: ServiceCall) -> None:
+        tv = _resolve(call)
+        await hass.async_add_executor_job(tv.send_key, call.data["key"])
+
     hass.services.async_register(DOMAIN, "publish", _publish, PUBLISH_SCHEMA)
+    hass.services.async_register(DOMAIN, "send_key", _send_key, SEND_KEY_SCHEMA)
     hass.services.async_register(DOMAIN, "send_text", _send_text, SEND_TEXT_SCHEMA)
     hass.services.async_register(
         DOMAIN, "refresh", _refresh, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})

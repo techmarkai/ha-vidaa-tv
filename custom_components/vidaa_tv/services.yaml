@@ -44,6 +44,85 @@ publish:
       selector:
         text:
 
+send_key:
+  name: Send key
+  description: >-
+    Send a single remote key to the TV. The dropdown lists every key VIDAA
+    remotes are known to send, but any value is accepted — the TV silently
+    ignores keys it does not implement, so experimenting is safe. The KEY_
+    prefix is optional. For sequences with repeats and delays, use
+    remote.send_command on the remote entity instead.
+  fields:
+    key:
+      name: Key
+      description: The key to send, for example KEY_CHANNELUP.
+      required: true
+      example: KEY_CHANNELUP
+      selector:
+        select:
+          custom_value: true
+          mode: dropdown
+          options:
+            - KEY_POWER
+            - KEY_SOURCE
+            - KEY_INPUT
+            - KEY_TV
+            - KEY_HOME
+            - KEY_MENU
+            - KEY_BACK
+            - KEY_RETURNS
+            - KEY_EXIT
+            - KEY_SETTINGS
+            - KEY_UP
+            - KEY_DOWN
+            - KEY_LEFT
+            - KEY_RIGHT
+            - KEY_OK
+            - KEY_VOLUMEUP
+            - KEY_VOLUMEDOWN
+            - KEY_MUTE
+            - KEY_CHANNELUP
+            - KEY_CHANNELDOWN
+            - KEY_LIST
+            - KEY_FAV
+            - KEY_GUIDE
+            - KEY_EPG
+            - KEY_0
+            - KEY_1
+            - KEY_2
+            - KEY_3
+            - KEY_4
+            - KEY_5
+            - KEY_6
+            - KEY_7
+            - KEY_8
+            - KEY_9
+            - KEY_PLAY
+            - KEY_PAUSE
+            - KEY_STOP
+            - KEY_FORWARDS
+            - KEY_BACKS
+            - KEY_RECORD
+            - KEY_RED
+            - KEY_GREEN
+            - KEY_YELLOW
+            - KEY_BLUE
+            - KEY_INFO
+            - KEY_SUBTITLE
+            - KEY_AUDIO
+            - KEY_SLEEP
+            - KEY_PICTURE
+            - KEY_SOUND
+            - KEY_NETFLIX
+            - KEY_YOUTUBE
+            - KEY_AMAZON
+    entry_id:
+      name: Entry ID
+      description: Only needed when more than one TV is configured.
+      required: false
+      selector:
+        text:
+
 send_text:
   name: Send text
   description: >-

@@ -20,5 +20,28 @@ CLIENT_ID = "00:11:22:33:44:55$normal"
 # ("fake_sleep_0", "sleep", "standby", ...).
 OFF_STATE_MARKERS = ("sleep", "standby", "poweroff", "power_off", "shutdown")
 
+# Source names that mean broadcast TV rather than an app or an HDMI input.
+# Matched exactly (after strip/lower), not as substrings, because "tv" as a
+# substring would also match app names like "Apple TV".
+LIVE_TV_MARKERS = ("tv", "live tv", "livetv", "atv", "dtv", "antenna", "cable", "tuner")
+
+# Every key this firmware generation is known to accept. The TV silently
+# ignores actions it does not implement, so listing a key a given model lacks
+# costs nothing. This exists to populate the send_key dropdown — it is NOT a
+# whitelist, and any string is still passed through.
+KEYS = (
+    "KEY_POWER", "KEY_SOURCE", "KEY_INPUT", "KEY_TV",
+    "KEY_HOME", "KEY_MENU", "KEY_BACK", "KEY_RETURNS", "KEY_EXIT", "KEY_SETTINGS",
+    "KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_OK",
+    "KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_MUTE",
+    "KEY_CHANNELUP", "KEY_CHANNELDOWN", "KEY_LIST", "KEY_FAV", "KEY_GUIDE", "KEY_EPG",
+    "KEY_0", "KEY_1", "KEY_2", "KEY_3", "KEY_4",
+    "KEY_5", "KEY_6", "KEY_7", "KEY_8", "KEY_9",
+    "KEY_PLAY", "KEY_PAUSE", "KEY_STOP", "KEY_FORWARDS", "KEY_BACKS", "KEY_RECORD",
+    "KEY_RED", "KEY_GREEN", "KEY_YELLOW", "KEY_BLUE",
+    "KEY_INFO", "KEY_SUBTITLE", "KEY_AUDIO", "KEY_SLEEP", "KEY_PICTURE", "KEY_SOUND",
+    "KEY_NETFLIX", "KEY_YOUTUBE", "KEY_AMAZON",
+)
+
 # Service names used in the /remoteapp/tv/<service>/... topic tree.
 SERVICES = ("remote_service", "ui_service", "platform_service")

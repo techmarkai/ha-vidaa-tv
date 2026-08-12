@@ -3,8 +3,10 @@
 Loads client.py directly so Home Assistant does not need to be installed.
 """
 
+import asyncio
 import importlib.util
 import json
+import logging
 import sys
 import types
 from pathlib import Path
@@ -25,6 +27,7 @@ def _load():
 
 
 client = _load()
+const = sys.modules["vt.const"]
 
 
 class FakeLoop:
@@ -131,6 +134,46 @@ def main():
     tv.state_type = "app"
     assert not tv.is_on
 
+    # Live TV detection drives which keys the track buttons send.
+    def live(state_type, name, channel=None):
+        tv.state_type, tv.current_name, tv.current_channel = state_type, name, channel
+        tv.state_has_channel = False
+        return tv.is_live_tv
+
+    assert live("livetv", "BBC One")
+    assert live("live_tv", None)
+    assert live("sourceswitch", "TV")
+    assert live("sourceswitch", " tv ")
+    assert live("sourceswitch", "DTV")
+    assert not live("app", "netflix")
+    assert not live("app", "Apple TV")          # an app whose name ends in "TV"
+    assert not live("sourceswitch", "HDMI1")
+    assert not live(None, None)
+    assert live(None, None, {"channel_num": "104"})
+
+    # Firmware that reports the tuner via channel_name on a non-livetv
+    # statetype: parser and property together, through a real message.
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/broadcast/ui_service/state",
+        '{"statetype":"sourceswitch","channel_name":"BBC One","channel_num":"104"}'))
+    assert tv.state_has_channel is True
+    assert tv.current_name == "BBC One", tv.current_name
+    assert tv.is_live_tv, (tv.state_type, tv.current_name)
+
+    # Switching to an app clears it, even though current_channel is stale.
+    tv._on_message(None, None, Msg(
+        "/remoteapp/mobile/broadcast/ui_service/state",
+        '{"statetype":"app","name":"netflix","url":"netflix"}'))
+    assert tv.state_has_channel is False
+    assert not tv.is_live_tv, (tv.state_type, tv.current_channel)
+
+    # The key list is a discoverability aid, not a whitelist.
+    assert "KEY_CHANNELUP" in const.KEYS and "KEY_CHANNELDOWN" in const.KEYS
+    assert all(k.startswith("KEY_") for k in const.KEYS), const.KEYS
+    assert len(set(const.KEYS)) == len(const.KEYS), "duplicate key"
+    for digit in "0123456789":
+        assert f"KEY_{digit}" in const.KEYS
+
     # App and source lookup: by name or url, case-insensitive, no false hits.
     assert tv.find_app("Netflix")["url"] == "netflix"
     assert tv.find_app("netflix")["name"] == "Netflix"
@@ -171,17 +214,116 @@ def main():
         "urlType": 36, "storeType": 0,
     }, payload
 
-    # Watchdog only reconnects while disconnected, and swallows a racing paho.
-    reconnects = []
-    tv._client.reconnect = lambda: reconnects.append(1)
+    # A dropped publish must warn, not raise — and a stub with no rc (as used
+    # throughout this file) must still count as success.
+    class _Dropped:
+        rc = 4  # MQTT_ERR_NO_CONN
+
+    class _Collector(logging.Handler):
+        records = []
+
+        def emit(self, record):
+            self.records.append(record)
+
+    handler = _Collector()
+    client._LOGGER.addHandler(handler)
+    client._LOGGER.setLevel(logging.DEBUG)
+    try:
+        tv._client.publish = lambda topic, payload: _Dropped()
+        tv.send_key("KEY_MUTE")  # must not raise
+        assert len(handler.records) == 1, handler.records
+        record = handler.records[0]
+        assert record.levelno == logging.WARNING, record.levelname
+        assert "not delivered" in record.getMessage(), record.getMessage()
+        assert "/actions/sendkey" in record.getMessage(), record.getMessage()
+
+        # After an auth rejection the real cause was already logged at ERROR;
+        # every later drop is noise, so it must fall to DEBUG.
+        handler.records.clear()
+        tv.auth_failed = True
+        tv.send_key("KEY_MUTE")
+        assert [r.levelno for r in handler.records] == [logging.DEBUG], handler.records
+        tv.auth_failed = False
+    finally:
+        client._LOGGER.removeHandler(handler)
+    tv._client.publish = lambda topic, payload: sent.append((topic, payload))
+
+    # The watchdog restarts paho's network loop only when its thread is gone.
+    # reconnect() cannot help there: it sends CONNECT with nobody left to read
+    # the CONNACK, so the loop must be stopped (to clear paho's stale _thread)
+    # and started again.
+    loop_calls = []
+    tv._client.loop_stop = lambda: loop_calls.append("stop")
+    tv._client.loop_start = lambda: loop_calls.append("start")
+
+    # A live paho network thread is already retrying; racing it is unsafe, so
+    # the watchdog must keep its hands off.
+    class _AliveThread:
+        def is_alive(self):
+            return True
+
+    tv.connected = False
+    tv._client._thread = _AliveThread()
+    tv.ping()
+    assert loop_calls == [], loop_calls
+
+    # Connected: nothing to do either.
+    tv._client._thread = None
     tv.connected = True
     tv.ping()
-    assert reconnects == [], reconnects
+    assert loop_calls == [], loop_calls
+
+    # Disconnected with a dead thread: stop then start, in that order.
     tv.connected = False
     tv.ping()
-    assert reconnects == [1], reconnects
-    tv._client.reconnect = lambda: (_ for _ in ()).throw(OSError("in flight"))
+    assert loop_calls == ["stop", "start"], loop_calls
+
+    # A racing paho must not propagate out of the watchdog.
+    loop_calls.clear()
+    tv._client.loop_stop = lambda: (_ for _ in ()).throw(OSError("in flight"))
     tv.ping()  # must not raise
+    assert loop_calls == [], loop_calls
+    tv._client.loop_stop = lambda: loop_calls.append("stop")
+
+    # A rejected credential (rc=5) is terminal: give up instead of retrying
+    # forever and writing an ERROR every 30 seconds.
+    rejected = client.VidaaTV(FakeHass(), "10.0.0.8")
+    disconnects = []
+    rejected._client.disconnect = lambda: disconnects.append(1)
+    rejected._client.loop_stop = lambda: loop_calls.append("nope")
+    rejected._client.loop_start = lambda: loop_calls.append("nope")
+    rejected._on_connect(rejected._client, None, None, 5)
+    assert rejected.auth_failed is True
+    assert not rejected.connected
+    assert disconnects == [1], disconnects
+    # Its thread was stopped on purpose; the watchdog must not restart it.
+    loop_calls.clear()
+    rejected.ping()
+    assert loop_calls == [], loop_calls
+
+    # Startup must not block on the TV. connect_async performs no I/O, so a
+    # TV that is off or unplugged costs nothing at setup time.
+    calls = []
+    offline = client.VidaaTV(FakeHass(), "10.0.0.9")
+    offline._client.connect_async = lambda h, p, k: calls.append(("connect", h, p, k))
+    offline._client.loop_start = lambda: calls.append(("loop",))
+    asyncio.run(offline.async_start())
+    assert calls == [("connect", "10.0.0.9", 36669, 30), ("loop",)], calls
+
+    # The blocking verify path is gone; nothing may still reference it.
+    assert not hasattr(offline, "_connect_and_verify")
+
+    # services.yaml cannot read Python, so the dropdown duplicates KEYS. Pin
+    # them together or the UI silently falls behind const.py.
+    yaml_text = (Path(__file__).parent / "custom_components" / "vidaa_tv"
+                 / "services.yaml").read_text(encoding="utf-8")
+    dropdown = [line.strip().lstrip("- ") for line in yaml_text.splitlines()
+                if line.strip().startswith("- KEY_")]
+    assert dropdown == list(const.KEYS), (
+        f"services.yaml dropdown is out of sync with const.KEYS\n"
+        f"  only in yaml: {sorted(set(dropdown) - set(const.KEYS))}\n"
+        f"  only in KEYS: {sorted(set(const.KEYS) - set(dropdown))}"
+    )
 
     print("all checks passed")
 
