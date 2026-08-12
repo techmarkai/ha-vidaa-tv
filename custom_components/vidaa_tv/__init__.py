@@ -10,19 +10,20 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
 
-from .client import VidaaError, VidaaTV
+from .client import VidaaTV
 from .const import CONF_MAC, DEFAULT_PORT, DOMAIN, SERVICES
 
 PLATFORMS = [Platform.MEDIA_PLAYER, Platform.REMOTE]
 
 ATTR_ENTRY_ID = "entry_id"
 
-# Longer than paho's own 60s max backoff, so the watchdog only ever fires when
-# paho's retry loop has genuinely stopped rather than racing it every tick.
+# Comfortably longer than paho's flat 30s retry, so the watchdog only fires
+# when paho's retry loop has genuinely stopped rather than racing it. Its one
+# job is a network thread that died or wedged; ordinary reconnects are paho's.
 WATCHDOG_INTERVAL = timedelta(seconds=90)
 
 SERVICE_NAMES = ("publish", "send_text", "refresh")
@@ -50,14 +51,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data[CONF_HOST]
     port = entry.data.get(CONF_PORT, DEFAULT_PORT)
 
-    # async_start verifies the CONNACK on the connection it already opens, so a
-    # firewall or a sleeping TV fails here with a reason instead of sitting in a
-    # silent reconnect loop.
+    # Setup never fails on an unreachable TV. A TV that is off, unplugged or
+    # behind a dead switch is a normal state, not a broken config entry — the
+    # client retries in the background and the entities report "off" meanwhile.
     tv = VidaaTV(hass, host, port, entry.data.get(CONF_MAC))
-    try:
-        await tv.async_start()
-    except VidaaError as err:
-        raise ConfigEntryNotReady(f"Cannot reach VIDAA TV at {host}:{port}: {err}") from err
+    await tv.async_start()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = tv
 
