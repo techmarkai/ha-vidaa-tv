@@ -15,7 +15,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
 
 from .client import VidaaTV
-from .const import CONF_MAC, DEFAULT_PORT, DOMAIN, SERVICES
+from .const import CONF_MAC, DEFAULT_PORT, DOMAIN, KEYS, SERVICES
 
 PLATFORMS = [Platform.MEDIA_PLAYER, Platform.REMOTE]
 
@@ -26,11 +26,20 @@ ATTR_ENTRY_ID = "entry_id"
 # job is a network thread that died or wedged; ordinary reconnects are paho's.
 WATCHDOG_INTERVAL = timedelta(seconds=90)
 
-SERVICE_NAMES = ("publish", "send_text", "refresh")
+SERVICE_NAMES = ("publish", "send_key", "send_text", "refresh")
 
 SEND_TEXT_SCHEMA = vol.Schema(
     {
         vol.Required("text"): cv.string,
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+    }
+)
+
+# cv.string, deliberately not vol.In(KEYS): KEYS drives the UI dropdown, but a
+# key must never be blocked just because this integration has not heard of it.
+SEND_KEY_SCHEMA = vol.Schema(
+    {
+        vol.Required("key"): cv.string,
         vol.Optional(ATTR_ENTRY_ID): cv.string,
     }
 )
@@ -86,9 +95,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register the raw-protocol services once.
 
-    Key sending is deliberately not a service here — remote.send_command on the
-    remote entity is the Home Assistant native way, and supports targeting,
-    repeats and delays for free.
+    send_key exists for discoverability — its dropdown lists every known key.
+    remote.send_command on the remote entity remains the richer path: it takes
+    a sequence of keys with repeats and delays, and supports entity targeting.
     """
     if hass.services.has_service(DOMAIN, "publish"):
         return
@@ -129,7 +138,12 @@ def _async_register_services(hass: HomeAssistant) -> None:
         tv = _resolve(call)
         await hass.async_add_executor_job(tv.send_text, call.data["text"])
 
+    async def _send_key(call: ServiceCall) -> None:
+        tv = _resolve(call)
+        await hass.async_add_executor_job(tv.send_key, call.data["key"])
+
     hass.services.async_register(DOMAIN, "publish", _publish, PUBLISH_SCHEMA)
+    hass.services.async_register(DOMAIN, "send_key", _send_key, SEND_KEY_SCHEMA)
     hass.services.async_register(DOMAIN, "send_text", _send_text, SEND_TEXT_SCHEMA)
     hass.services.async_register(
         DOMAIN, "refresh", _refresh, vol.Schema({vol.Optional(ATTR_ENTRY_ID): cv.string})
