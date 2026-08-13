@@ -59,6 +59,12 @@ class VidaaMediaPlayer(MediaPlayerEntity):
     _attr_supported_features = SUPPORT
     _attr_has_entity_name = True
     _attr_name = None
+    # The TV reports no play/pause distinction and every command is
+    # fire-and-forget at QoS 0, so this entity's notion of what the TV is
+    # doing is genuinely assumed. This is also what makes the media control
+    # card draw the full transport row: power, previous, play, pause, stop,
+    # next.
+    _attr_assumed_state = True
 
     def __init__(self, tv: VidaaTV, entry: ConfigEntry) -> None:
         self._tv = tv
@@ -113,11 +119,8 @@ class VidaaMediaPlayer(MediaPlayerEntity):
 
     @property
     def state(self) -> MediaPlayerState:
-        # PLAYING rather than ON so the media control card draws its playback
-        # row — previous/play/pause/stop/next, which is where channel up/down
-        # lives. The TV reports no play/pause distinction, so every awake state
-        # is PLAYING. is_on already requires a live connection.
-        return MediaPlayerState.PLAYING if self._tv.is_on else MediaPlayerState.OFF
+        # is_on already requires a live connection.
+        return MediaPlayerState.ON if self._tv.is_on else MediaPlayerState.OFF
 
     @property
     def volume_level(self) -> float | None:
