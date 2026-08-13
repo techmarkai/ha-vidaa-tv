@@ -113,8 +113,11 @@ class VidaaMediaPlayer(MediaPlayerEntity):
 
     @property
     def state(self) -> MediaPlayerState:
-        # is_on already requires a live connection.
-        return MediaPlayerState.ON if self._tv.is_on else MediaPlayerState.OFF
+        # PLAYING rather than ON so the media control card draws its playback
+        # row — previous/play/pause/stop/next, which is where channel up/down
+        # lives. The TV reports no play/pause distinction, so every awake state
+        # is PLAYING. is_on already requires a live connection.
+        return MediaPlayerState.PLAYING if self._tv.is_on else MediaPlayerState.OFF
 
     @property
     def volume_level(self) -> float | None:
