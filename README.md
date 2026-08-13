@@ -42,7 +42,8 @@ never connect to them. This one talks to the TV the way the TV actually answers.
   exit, channel up/down and the digits 0-9. They appear on the device page with
   no YAML and drag straight onto a dashboard.
 
-Entities created: `media_player.<name>` and `remote.<name>_remote`.
+Entities created: `media_player.<name>`, `remote.<name>_remote`, and 21
+`button.<name>_*` key entities.
 
 ## Installation
 
@@ -232,35 +233,6 @@ data: { command: KEY_SUBTITLE }
 
 Nothing else changed. Entities, unique IDs and config entries are untouched, so
 no reconfiguration is needed.
-
-## Upgrading to 2.4.0
-
-**Breaking:** the media player now reports `playing` instead of `on` while the
-TV is awake. This is what makes Home Assistant's media control card draw the
-playback row — previous, play, pause, stop, next — which is where channel
-up/down lives while watching broadcast TV.
-
-Any automation, script or template testing `state == 'on'` against
-`media_player.<your_tv>` needs updating:
-
-```yaml
-# before
-condition: state
-entity_id: media_player.living_room_tv
-state: "on"
-
-# after — either match the new state
-condition: state
-entity_id: media_player.living_room_tv
-state: playing
-
-# or key off the remote entity, which still reports on/off
-condition: state
-entity_id: remote.living_room_tv_remote
-state: "on"
-```
-
-`off` is unchanged, so anything checking for `off` keeps working.
 
 ## Caveats
 
