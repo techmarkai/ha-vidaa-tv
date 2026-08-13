@@ -53,23 +53,27 @@ Buttons stay available while the TV is off, matching the media player and remote
 A press in that state is logged as undelivered by the existing `_publish` wrapper rather
 than silently dropped.
 
-### 2. Media player reports `playing`
+### 2. Media player sets `assumed_state`
 
-`VidaaMediaPlayer.state` returns `MediaPlayerState.PLAYING` instead of `MediaPlayerState.ON`
-when the TV is awake. `MediaPlayerState.OFF` while asleep or disconnected is unchanged.
+`VidaaMediaPlayer` gains `_attr_assumed_state = True`. `state` is unchanged: it still returns
+`MediaPlayerState.ON` when the TV is awake and `MediaPlayerState.OFF` otherwise.
 
-This makes the media control card draw the playback row: previous, play, pause, stop, next.
-Since 2.3.0 the track buttons already send channel down/up while `is_live_tv` is true, so
-this is what puts channel control on the card itself.
+Home Assistant's media control card draws the previous/next transport buttons whenever
+`assumed_state` is true, regardless of the reported state — and in that branch it renders
+play, pause and stop as three separate buttons plus a power button, rather than the single
+context-dependent toggle it draws for a normal state. So `assumed_state` produces the fuller
+transport row without touching `state` at all. Since 2.3.0 the track buttons already send
+channel down/up while `is_live_tv` is true, so this is what puts channel control on the card
+itself.
 
-**Breaking change.** The state string becomes `playing`, not `on`. Any automation, script or
-template testing `state == 'on'` against `media_player.<tv>` must be updated. The
-`remote.<tv>_remote` entity is unaffected — it still reports `on` and `off` — so an
-automation needing only on/off can target that instead. This must be called out in the
-README and in the release notes.
+This is also the more truthful model. The TV reports no distinction between playing and
+paused, and every command goes out fire-and-forget at QoS 0 with no acknowledgement, so the
+entity never actually knows what the TV is doing — it can only assume. `assumed_state` says
+so directly instead of picking a specific playback state to stand in for that ignorance.
 
-The TV reports no distinction between playing and paused, so `playing` covers every awake
-state. Reporting `paused` would require state the protocol does not provide.
+No breaking change. `state` still reports `on`/`off` exactly as before 2.4.0, so every
+automation, script and template testing `state == 'on'` against `media_player.<tv>` keeps
+working unmodified.
 
 ## Testing
 
