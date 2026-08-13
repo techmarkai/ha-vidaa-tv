@@ -38,8 +38,12 @@ never connect to them. This one talks to the TV the way the TV actually answers.
   own, so no manual reload is ever needed.
 - Channel up/down on the media player's next/previous track buttons while
   watching broadcast TV. Inside apps the same buttons seek as before.
+- A button entity per remote key worth pressing — arrows, OK, back, home, menu,
+  exit, channel up/down and the digits 0-9. They appear on the device page with
+  no YAML and drag straight onto a dashboard.
 
-Entities created: `media_player.<name>` and `remote.<name>_remote`.
+Entities created: `media_player.<name>`, `remote.<name>_remote`, and 21
+`button.<name>_*` key entities.
 
 ## Installation
 
@@ -136,6 +140,22 @@ The keys in the `vidaa_tv.send_key` dropdown are the ones VIDAA remotes are
 known to send — see `KEYS` in `custom_components/vidaa_tv/const.py` for the
 canonical list. It is a starting point, **not** a whitelist: any string is
 passed straight through, so unlisted keys still work.
+
+### Buttons
+
+Twenty-one keys are exposed as button entities, so a number pad and channel
+controls can go on a dashboard without writing service calls:
+
+| Group | Buttons |
+| --- | --- |
+| Navigation | Up, Down, Left, Right, OK |
+| Return and menu | Back, Home, Menu, Exit |
+| Channel | Channel up, Channel down |
+| Digits | 0 – 9 |
+
+They are named `button.<your_tv>_up`, `button.<your_tv>_channel_up`,
+`button.<your_tv>_5` and so on, and are listed on the device page. Every other
+key stays available through `vidaa_tv.send_key` and `remote.send_command`.
 
 ### `vidaa_tv.send_key`
 
