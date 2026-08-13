@@ -17,7 +17,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from .client import VidaaTV
 from .const import CONF_MAC, DEFAULT_PORT, DOMAIN, SERVICES
 
-PLATFORMS = [Platform.MEDIA_PLAYER, Platform.REMOTE]
+PLATFORMS = [Platform.BUTTON, Platform.MEDIA_PLAYER, Platform.REMOTE]
 
 ATTR_ENTRY_ID = "entry_id"
 
