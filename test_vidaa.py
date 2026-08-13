@@ -313,6 +313,20 @@ def main():
     # The blocking verify path is gone; nothing may still reference it.
     assert not hasattr(offline, "_connect_and_verify")
 
+    # The button table drives one entity each; a typo here is a dead button.
+    keys = [key for key, _name, _icon in const.BUTTONS]
+    names = [name for _key, name, _icon in const.BUTTONS]
+    icons = [icon for _key, _name, icon in const.BUTTONS]
+    assert len(const.BUTTONS) == 21, len(const.BUTTONS)
+    assert set(keys) <= set(const.KEYS), sorted(set(keys) - set(const.KEYS))
+    assert len(set(keys)) == len(keys), "duplicate key in BUTTONS"
+    # Duplicate names would collide into the same entity id.
+    assert len(set(names)) == len(names), "duplicate name in BUTTONS"
+    assert all(icon.startswith("mdi:") for icon in icons), icons
+    for digit in "0123456789":
+        assert f"KEY_{digit}" in keys, digit
+    assert "KEY_CHANNELUP" in keys and "KEY_CHANNELDOWN" in keys
+
     # services.yaml cannot read Python, so the dropdown duplicates KEYS. Pin
     # them together or the UI silently falls behind const.py.
     yaml_text = (Path(__file__).parent / "custom_components" / "vidaa_tv"

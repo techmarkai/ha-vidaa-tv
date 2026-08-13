@@ -43,5 +43,33 @@ KEYS = (
     "KEY_NETFLIX", "KEY_YOUTUBE", "KEY_AMAZON",
 )
 
+# The keys worth a dashboard button, as (key, display name, icon). A curated
+# subset of KEYS on purpose: one entity per key across all 52 would clutter
+# every entity picker to serve keys nobody puts on a card. Everything else
+# stays reachable through the send_key service and remote.send_command.
+BUTTONS = (
+    ("KEY_UP", "Up", "mdi:arrow-up"),
+    ("KEY_DOWN", "Down", "mdi:arrow-down"),
+    ("KEY_LEFT", "Left", "mdi:arrow-left"),
+    ("KEY_RIGHT", "Right", "mdi:arrow-right"),
+    ("KEY_OK", "OK", "mdi:check-circle-outline"),
+    ("KEY_BACK", "Back", "mdi:arrow-u-left-top"),
+    ("KEY_HOME", "Home", "mdi:home"),
+    ("KEY_MENU", "Menu", "mdi:menu"),
+    ("KEY_EXIT", "Exit", "mdi:exit-to-app"),
+    ("KEY_CHANNELUP", "Channel up", "mdi:chevron-up-box"),
+    ("KEY_CHANNELDOWN", "Channel down", "mdi:chevron-down-box"),
+    ("KEY_0", "0", "mdi:numeric-0"),
+    ("KEY_1", "1", "mdi:numeric-1"),
+    ("KEY_2", "2", "mdi:numeric-2"),
+    ("KEY_3", "3", "mdi:numeric-3"),
+    ("KEY_4", "4", "mdi:numeric-4"),
+    ("KEY_5", "5", "mdi:numeric-5"),
+    ("KEY_6", "6", "mdi:numeric-6"),
+    ("KEY_7", "7", "mdi:numeric-7"),
+    ("KEY_8", "8", "mdi:numeric-8"),
+    ("KEY_9", "9", "mdi:numeric-9"),
+)
+
 # Service names used in the /remoteapp/tv/<service>/... topic tree.
 SERVICES = ("remote_service", "ui_service", "platform_service")
