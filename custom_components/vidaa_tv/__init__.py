@@ -29,13 +29,15 @@ ATTR_ENTRY_ID = "entry_id"
 # browser cache when the card changes; bump it with the manifest version.
 CARD_URL = "/vidaa_tv/vidaa-remote-card.js"
 CARD_FILE = "vidaa-remote-card.js"
-CARD_VERSION = "2.5.0"
+CARD_VERSION = "2.5.1"
 CARD_REGISTERED = f"{DOMAIN}_card_registered"
 
 # Watchdog cadence. Ordinary reconnects are paho's job, and ping() bails out
 # unless paho's network thread is actually dead — a disconnected TV on its own
 # is not enough, since reconnect() racing that thread is unsafe.
-WATCHDOG_INTERVAL = timedelta(seconds=90)
+# Also the tick that retires a stale grace window, so it has to be shorter than
+# the wait a user would accept before a switched-off TV stops reading "on".
+WATCHDOG_INTERVAL = timedelta(seconds=30)
 
 SERVICE_NAMES = ("publish", "send_key", "send_text", "refresh")
 

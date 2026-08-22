@@ -52,6 +52,16 @@ class FakeClient:
     def publish(self, topic, payload=None, *a, **k):
         self.published.append((topic, payload))
 
+    # ping() revives a dead network thread through these; a live-looking
+    # thread keeps the fake out of that branch entirely.
+    _thread = None
+
+    def loop_stop(self):
+        pass
+
+    def loop_start(self):
+        pass
+
 
 class Msg:
     def __init__(self, topic, payload):
@@ -402,6 +412,33 @@ def main():
     # It must target an entity, not a config entry: vidaa_tv.send_key takes an
     # entry_id and so cannot address one TV among several from a card.
     assert '"remote", "send_command"' in card, "card should call remote.send_command"
+
+    # A TV that is switched off sends one disconnect and then nothing. The
+    # grace window lapses on a clock with no event behind it, so without the
+    # watchdog retiring it the entity keeps reading "on" forever while every
+    # command is silently dropped. This is the regression that shipped in
+    # 2.4.1 and went unnoticed for a day.
+    gone = client.VidaaTV(FakeHass(), "10.0.0.12")
+    gone._client = fake_gone = FakeClient()
+    gone._on_connect(fake_gone, None, None, 0)
+    gone._on_message(None, None, Msg(
+        "/remoteapp/mobile/broadcast/ui_service/state",
+        b'{"statetype": "livetv", "channel_name": "Nat Geo"}'))
+    writes = []
+    gone.add_listener(lambda: writes.append(1))
+    gone._on_disconnect(None, None, 7)
+    assert gone.is_on, "still inside the grace, so still on"
+    seen = len(writes)
+    gone.ping()
+    assert len(writes) == seen, "nothing changed yet, so no pointless state write"
+    # Push the drop past the grace, the way wall-clock time would.
+    gone._dropped_at -= const.DISCONNECT_GRACE + 1
+    assert not gone.is_on, "the grace has lapsed"
+    gone.ping()
+    assert len(writes) > seen, "the watchdog must tell entities the grace lapsed"
+    seen = len(writes)
+    gone.ping()
+    assert len(writes) == seen, "and must not keep re-notifying once reported"
 
     print("all checks passed")
 

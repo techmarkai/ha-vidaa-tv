@@ -144,6 +144,9 @@ class VidaaTV:
         # Diagnostics only: without a count the log shows drops but never
         # recoveries, so a slow reconnect looks identical to a fast one.
         self._connects = 0
+        # The last link_ok the listeners were told about. link_ok expires on a
+        # clock, not on an event, so the watchdog has to notice the change.
+        self._reported_link_ok: bool | None = None
 
         self._listeners: list[Callable[[], None]] = []
         self._client = _new_client(CLIENT_ID)
@@ -216,6 +219,7 @@ class VidaaTV:
 
     def _notify(self) -> None:
         # Called on the paho network thread; hop to the event loop.
+        self._reported_link_ok = self.link_ok
         for callback in list(self._listeners):
             self.hass.loop.call_soon_threadsafe(callback)
 
@@ -474,6 +478,15 @@ class VidaaTV:
         deliberately left alone entirely — its thread was stopped on purpose.
         Blocking, briefly, in the join.
         """
+        # Entities recompute only when a listener fires, but link_ok flips on a
+        # timer once DISCONNECT_GRACE runs out. A TV that is switched off emits
+        # one disconnect -- inside the grace, so still "on" -- and then nothing
+        # ever again, which used to leave the entity reading "on" indefinitely
+        # while every command was silently dropped. Tell the listeners when the
+        # value they were given has gone stale.
+        if self.link_ok != self._reported_link_ok:
+            self._notify()
+
         if self.connected or self.auth_failed:
             return
         thread = getattr(self._client, "_thread", None)
