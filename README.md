@@ -144,9 +144,18 @@ passed straight through, so unlisted keys still work.
 
 ## Remote card
 
+<img src="docs/images/ct-8547-remote.jpg" alt="Toshiba CT-8547 remote handset" align="right" width="150">
+
 The integration ships a Lovelace card laid out after the Toshiba CT-8547 handset
 these TVs come with — keypad, direction pad, colour keys, transport controls,
 Netflix and YouTube.
+
+The card copies the handset's button **positions and grouping** so it reads at a
+glance, but draws them with your theme's colours rather than the handset's black
+shell, so it works on light and dark dashboards. Two things could not carry over:
+the volume and channel **rockers** are single physical keys, so each becomes two
+buttons; and `GUIDE`/`SUBTITLE` sit below the direction pad rather than flanking
+it, to keep the grid to three even columns.
 
 There is **no resource to add**. The integration serves the card itself, so it
 appears in the card picker after a restart:
@@ -280,10 +289,66 @@ state back, so the flag can drift if you also use the physical remote.
 keys, so the list in `const.py` cannot be verified exhaustively. Any key string
 you send is passed straight through.
 
+**The TV drops the MQTT link every few minutes — this is normal.** This firmware
+ends the session itself roughly every 271 seconds (sometimes ~301s), reporting
+`rc=7`, and then refuses new connections for about 20 seconds. Measured over an
+undisturbed hour: 11 drops, all recovering in 22.1 seconds. Nothing on the
+network is faulty and nothing in Home Assistant causes it — sending traffic does
+not keep the session alive either, so there is no heartbeat that would help.
+
+The integration rides it out: it retries across the refusal window instead of
+sleeping through it, and holds the last known state for 60 seconds
+(`DISCONNECT_GRACE`), so entities do **not** flip to `off` while it reconnects.
+You should never see this happen. If you enable `info` logging for
+`custom_components.vidaa_tv` you will see one `disconnected` and one
+`reconnected after N.Ns` line per cycle — those are expected, not errors.
+
+The one visible consequence: commands sent during those ~22 seconds are dropped
+(the protocol is fire-and-forget at QoS 0) and logged as `was not delivered`.
+Press the button again.
+
 **The media player stays "off", not "unavailable".** While the TV is off, the
 media player reports `off` rather than `unavailable`, and its volume and
 source read as unknown. This is deliberate: it keeps `turn_on` callable so
 Wake-on-LAN automations still work.
+
+## Troubleshooting
+
+**The remote card is not in the card picker.** Restart Home Assistant after
+updating — the card is registered during setup. Then hard-refresh the browser
+(<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>); the old page
+caches the script list. You do **not** need to add a Lovelace resource.
+
+**One card button does nothing.** Most likely one of the five unverified keys
+(teletext, apps, media, skip back, skip forward). The TV silently ignores key
+codes it does not implement. Please open an issue saying which TV model, so the
+code can be corrected or the button dropped.
+
+**Entities went unavailable and came back.** See the MQTT drop note in
+[Caveats](#caveats) — brief drops are normal and hidden. If entities actually
+flip to `off` or `unavailable`, that is not the normal cycle; enable `info`
+logging and check whether the `reconnected after N.Ns` lines report far more
+than ~22 seconds.
+
+**Commands do nothing but the entity looks fine.** Every command is
+fire-and-forget at QoS 0, so a command sent during a reconnect is dropped and
+logged as `was not delivered`. Press again.
+
+**Setup fails with `invalid_auth`.** Newer VIDAA firmware requires PIN pairing,
+which this integration does not implement.
+
+**Turn-on does nothing.** Wake-on-LAN is a broadcast and does not cross subnets.
+Put Home Assistant on the TV's subnet, or set the MAC during setup if you left it
+blank.
+
+To see what the integration is doing:
+
+```yaml
+# configuration.yaml
+logger:
+  logs:
+    custom_components.vidaa_tv: info    # connect/disconnect/recovery lines
+```
 
 ## Development
 
@@ -291,8 +356,9 @@ Wake-on-LAN automations still work.
 python test_vidaa.py
 ```
 
-Checks message parsing, state handling, topic construction and volume clamping
-with no TV and no Home Assistant install required.
+Checks message parsing, state handling, topic construction, volume clamping, the
+reconnect grace window, and that every key code the Lovelace card sends actually
+exists in `const.KEYS` — all with no TV and no Home Assistant install required.
 
 ## Protocol
 
