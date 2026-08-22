@@ -408,7 +408,12 @@ def main():
     # The card is useless if Lovelace cannot find it, and both of these are easy
     # to lose in a refactor.
     assert 'customElements.define("vidaa-remote-card"' in card
-    assert "window.customCards" in card
+    assert 'customElements.define("vidaa-remote-compact-card"' in card
+    assert card.count("window.customCards") >= 1
+    # Both cards must be offered in the picker, or the compact one is
+    # reachable only by hand-writing YAML.
+    for card_type in ("vidaa-remote-card", "vidaa-remote-compact-card"):
+        assert f'type: "{card_type}"' in card, f"{card_type} missing from the picker"
     # It must target an entity, not a config entry: vidaa_tv.send_key takes an
     # entry_id and so cannot address one TV among several from a card.
     assert '"remote", "send_command"' in card, "card should call remote.send_command"

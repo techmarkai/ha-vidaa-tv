@@ -162,10 +162,17 @@ appears in the card picker after a restart:
 
 > **Edit dashboard → Add card → VIDAA TV Remote**
 
+There are two, both in the picker:
+
+| Card | |
+| --- | --- |
+| **VIDAA TV Remote** | The full handset — keypad, colour keys, both transport rows |
+| **VIDAA TV Remote (compact)** | Source, power, direction pad, volume, channel, playback and apps — about half the height, so it sits beside other cards |
+
 Or in YAML:
 
 ```yaml
-type: custom:vidaa-remote-card
+type: custom:vidaa-remote-card           # or custom:vidaa-remote-compact-card
 entity: remote.living_room_tv   # optional; the first VIDAA remote is used otherwise
 title: Living room              # optional
 ```
@@ -174,10 +181,20 @@ The card follows your dashboard's light and dark theme, and stays usable across
 the TV's periodic MQTT drops — buttons only grey out when the TV is genuinely
 unavailable, not during the few seconds it takes to reconnect.
 
-Five keys on the handset — teletext, apps, media, and the two skip-track
-buttons — have codes that are **not confirmed** on real hardware. This firmware
-ignores actions it does not implement, so if one of those buttons does nothing
-on your set, that is why. Reports welcome.
+**Netflix and YouTube launch by name**, not by key code — this firmware ignores
+`KEY_NETFLIX` and `KEY_YOUTUBE`, but it reports its installed apps and launching
+one by name works.
+
+Four handset keys are **not drawn**, because the TV ignores their codes:
+`P.MODE`, `S.MODE`, `APPS` and `MEDIA`. Teletext and the two skip-track buttons
+are drawn but unconfirmed — if one does nothing on your set, that is why.
+Reports welcome.
+
+**While an app is in the foreground, this TV ignores key presses entirely.**
+Volume, `HOME`, `EXIT` and even switching input all deliver over MQTT and do
+nothing until you leave the app with the physical remote. Only launching another
+app gets through. This is firmware behaviour, not something the card can work
+around — it is the most common reason for "the remote card does nothing".
 
 ### Buttons
 

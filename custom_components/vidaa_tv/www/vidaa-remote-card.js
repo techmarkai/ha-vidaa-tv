@@ -58,6 +58,28 @@ const LAYOUT = [
     ] },
 ];
 
+// Everything above, minus the keypad, colour keys, teletext and the second
+// transport row -- what gets used day to day, at about half the height so the
+// card sits beside others instead of owning a column.
+const COMPACT_LAYOUT = [
+  { cls: "row-2", keys: [KEY("⊸", "KEY_SOURCE", { title: "Source" }), KEY("⏻", "KEY_POWER", { cls: "power", title: "Power" })] },
+  { cls: "pad", keys: [
+      GAP, KEY("▲", "KEY_UP", { cls: "round", title: "Up" }), GAP,
+      KEY("◀", "KEY_LEFT", { cls: "round", title: "Left" }),
+      KEY("OK", "KEY_OK", { cls: "ok" }),
+      KEY("▶", "KEY_RIGHT", { cls: "round", title: "Right" }),
+      GAP, KEY("▼", "KEY_DOWN", { cls: "round", title: "Down" }), GAP,
+    ] },
+  { cls: "row-3", keys: [KEY("＋", "KEY_VOLUMEUP", { title: "Volume up" }), KEY("HOME", "KEY_HOME"), KEY("∧", "KEY_CHANNELUP", { title: "Channel up" })] },
+  { cls: "row-3", keys: [KEY("－", "KEY_VOLUMEDOWN", { title: "Volume down" }), KEY("↩", "KEY_BACK", { title: "Back" }), KEY("∨", "KEY_CHANNELDOWN", { title: "Channel down" })] },
+  { cls: "row-3", keys: [KEY("🔇", "KEY_MUTE", { title: "Mute" }), KEY("EXIT", "KEY_EXIT"), KEY("GUIDE", "KEY_GUIDE")] },
+  { cls: "row-3", keys: [KEY("◀◀", "KEY_BACKS", { title: "Rewind" }), KEY("▶", "KEY_PLAY", { title: "Play" }), KEY("▶▶", "KEY_FORWARDS", { title: "Fast forward" })] },
+  { cls: "row-2", keys: [
+      KEY("NETFLIX", null, { cls: "netflix", app: "Netflix" }),
+      KEY("YouTube", null, { cls: "youtube", app: "YouTube" }),
+    ] },
+];
+
 const STYLE = `
   ha-card { padding: 12px; }
   .remote { display: flex; flex-direction: column; gap: 6px; max-width: 260px; margin: 0 auto; }
@@ -119,6 +141,11 @@ class VidaaRemoteCard extends HTMLElement {
     return { entity: entity || "" };
   }
 
+  // Rows of buttons, roughly; Lovelace uses this for masonry placement.
+  get _layout() {
+    return LAYOUT;
+  }
+
   getCardSize() {
     return 12;
   }
@@ -155,7 +182,7 @@ class VidaaRemoteCard extends HTMLElement {
     remote.className = "remote";
     this._buttons = [];
 
-    for (const row of LAYOUT) {
+    for (const row of this._layout) {
       const el = document.createElement("div");
       el.className = row.cls;
       for (const key of row.keys) {
@@ -209,12 +236,32 @@ class VidaaRemoteCard extends HTMLElement {
   }
 }
 
+/** Same behaviour, fewer buttons. */
+class VidaaRemoteCompactCard extends VidaaRemoteCard {
+  get _layout() {
+    return COMPACT_LAYOUT;
+  }
+
+  getCardSize() {
+    return 7;
+  }
+}
+
 customElements.define("vidaa-remote-card", VidaaRemoteCard);
+customElements.define("vidaa-remote-compact-card", VidaaRemoteCompactCard);
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "vidaa-remote-card",
-  name: "VIDAA TV Remote",
-  description: "The full handset layout for a Hisense/Toshiba VIDAA TV.",
-  preview: true,
-});
+window.customCards.push(
+  {
+    type: "vidaa-remote-card",
+    name: "VIDAA TV Remote",
+    description: "The full handset layout for a Hisense/Toshiba VIDAA TV.",
+    preview: true,
+  },
+  {
+    type: "vidaa-remote-compact-card",
+    name: "VIDAA TV Remote (compact)",
+    description: "The everyday controls only — about half the height.",
+    preview: true,
+  },
+);

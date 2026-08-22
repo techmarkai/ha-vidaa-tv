@@ -29,7 +29,7 @@ ATTR_ENTRY_ID = "entry_id"
 # browser cache when the card changes; bump it with the manifest version.
 CARD_URL = "/vidaa_tv/vidaa-remote-card.js"
 CARD_FILE = "vidaa-remote-card.js"
-CARD_VERSION = "2.5.2"
+CARD_VERSION = "2.6.0"
 CARD_REGISTERED = f"{DOMAIN}_card_registered"
 
 # Watchdog cadence. Ordinary reconnects are paho's job, and ping() bails out
