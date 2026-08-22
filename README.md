@@ -190,11 +190,13 @@ Four handset keys are **not drawn**, because the TV ignores their codes:
 are drawn but unconfirmed — if one does nothing on your set, that is why.
 Reports welcome.
 
-**While an app is in the foreground, this TV ignores key presses entirely.**
-Volume, `HOME`, `EXIT` and even switching input all deliver over MQTT and do
-nothing until you leave the app with the physical remote. Only launching another
-app gets through. This is firmware behaviour, not something the card can work
-around — it is the most common reason for "the remote card does nothing".
+**Keys may be ignored while an app is in the foreground.** On the reference TV,
+a volume key that was confirmed delivered over MQTT had no effect while YouTube
+was running, whereas launching a different app by name worked. How far this goes
+is **not established** — other keys tested at the time turned out to have been
+dropped during a reconnect rather than ignored, so they prove nothing either
+way. If the card seems dead, try leaving the app with the physical remote first.
+Reports either way are welcome.
 
 ### Buttons
 
