@@ -150,11 +150,17 @@ class VidaaTV:
         self._listeners: list[Callable[[], None]] = []
         self._client = _new_client(CLIENT_ID)
         self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-        # Backoff 1s -> 30s. paho resets the delay after every successful
-        # connect, so a transient blip on a live link is back in ~1s instead of
-        # showing the TV as off for a full 30 seconds, while a TV that is
-        # actually switched off still settles at one cheap LAN connect per 30s.
-        self._client.reconnect_delay_set(min_delay=1, max_delay=30)
+        # Backoff 1s -> 5s. Measured against the real TV: after it ends a
+        # session it also refuses new connections for somewhere between 15 and
+        # 31 seconds, so paho's default doubling (1,2,4,8,16) spent its 16s
+        # sleep waiting past the point the TV was ready again and took 31.1s
+        # every single time. Capping the delay keeps retrying across that
+        # window instead of sleeping through it. The link is down for real
+        # until it succeeds -- commands published meanwhile are dropped at QoS
+        # 0 -- so the retries buy back control latency, not just a status dot.
+        # ponytail: one TCP connect per 5s to a switched-off TV is the price;
+        # raise the cap if that ever shows up on the network.
+        self._client.reconnect_delay_set(min_delay=1, max_delay=5)
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
