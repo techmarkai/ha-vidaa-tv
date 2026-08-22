@@ -3,7 +3,7 @@
   "name": "VIDAA TV (Hisense / Toshiba)",
   "codeowners": ["@techmarkai"],
   "config_flow": true,
-  "dependencies": ["network"],
+  "dependencies": ["frontend", "http", "network"],
   "dhcp": [
     { "macaddress": "10C753*" },
     { "hostname": "hisense*" },
@@ -15,5 +15,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/techmarkai/ha-vidaa-tv/issues",
   "requirements": ["paho-mqtt>=1.6.1"],
-  "version": "2.4.4"
+  "version": "2.5.0"
 }

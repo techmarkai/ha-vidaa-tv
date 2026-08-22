@@ -41,6 +41,11 @@ KEYS = (
     "KEY_RED", "KEY_GREEN", "KEY_YELLOW", "KEY_BLUE",
     "KEY_INFO", "KEY_SUBTITLE", "KEY_AUDIO", "KEY_SLEEP", "KEY_PICTURE", "KEY_SOUND",
     "KEY_NETFLIX", "KEY_YOUTUBE", "KEY_AMAZON",
+    # On the CT-8547 handset but never confirmed against a TV: the remote card
+    # draws them, and this firmware ignores actions it does not implement, so a
+    # wrong guess does nothing rather than erroring. Confirm before relying on
+    # them, and drop any that stay dead.
+    "KEY_TEXT", "KEY_APPS", "KEY_MEDIA", "KEY_PREVIOUS", "KEY_NEXT",
 )
 
 # The keys worth a dashboard button, as (key, display name, icon). A curated

@@ -7,6 +7,7 @@ import asyncio
 import importlib.util
 import json
 import logging
+import re
 import sys
 import types
 from pathlib import Path
@@ -382,6 +383,25 @@ def main():
     assert client.clean_mac("10-c7-53-8e-b3-86") == "10c7538eb386"
     assert client.clean_mac("10C7538EB386") == "10c7538eb386"
     assert client.clean_mac(None) == "" and client.clean_mac("") == ""
+
+    # The Lovelace card is browser JavaScript this self-check cannot execute,
+    # but it hardcodes key codes and would fail silently on a typo -- the TV
+    # ignores unknown actions, so a mistyped code is a button that quietly does
+    # nothing. Pin every code the card sends to const.KEYS.
+    card = (Path(__file__).parent / "custom_components" / "vidaa_tv" / "www"
+            / "vidaa-remote-card.js").read_text(encoding="utf-8")
+    card_keys = set(re.findall(r'"(KEY_[A-Z0-9_]+)"', card))
+    assert card_keys, "no key codes found in the card -- did the file move?"
+    unknown = sorted(card_keys - set(const.KEYS))
+    assert not unknown, f"card sends key codes that are not in const.KEYS: {unknown}"
+
+    # The card is useless if Lovelace cannot find it, and both of these are easy
+    # to lose in a refactor.
+    assert 'customElements.define("vidaa-remote-card"' in card
+    assert "window.customCards" in card
+    # It must target an entity, not a config entry: vidaa_tv.send_key takes an
+    # entry_id and so cannot address one TV among several from a card.
+    assert '"remote", "send_command"' in card, "card should call remote.send_command"
 
     print("all checks passed")
 

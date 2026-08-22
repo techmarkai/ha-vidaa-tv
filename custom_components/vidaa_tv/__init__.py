@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from pathlib import Path
 
 import voluptuous as vol
 
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -20,6 +23,14 @@ from .const import CONF_MAC, DEFAULT_PORT, DOMAIN, SERVICES
 PLATFORMS = [Platform.BUTTON, Platform.MEDIA_PLAYER, Platform.REMOTE]
 
 ATTR_ENTRY_ID = "entry_id"
+
+# The Lovelace card ships inside the integration and is served from here, so
+# there is no resource for the user to add by hand. The version query busts the
+# browser cache when the card changes; bump it with the manifest version.
+CARD_URL = "/vidaa_tv/vidaa-remote-card.js"
+CARD_FILE = "vidaa-remote-card.js"
+CARD_VERSION = "2.5.0"
+CARD_REGISTERED = f"{DOMAIN}_card_registered"
 
 # Watchdog cadence. Ordinary reconnects are paho's job, and ping() bails out
 # unless paho's network thread is actually dead — a disconnected TV on its own
@@ -77,6 +88,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_register_services(hass)
+    await _async_register_card(hass)
     return True
 
 
@@ -90,6 +102,30 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for name in SERVICE_NAMES:
                 hass.services.async_remove(DOMAIN, name)
     return unloaded
+
+
+async def _async_register_card(hass: HomeAssistant) -> None:
+    """Serve the remote card and load it into the frontend.
+
+    Registering the static path and the script URL is global rather than
+    per-entry, so a second TV must not do it again: registering the same static
+    path twice raises, and a duplicate script URL would fetch the card twice.
+    """
+    # Its own key, NOT inside hass.data[DOMAIN]: that dict maps entry_id to
+    # VidaaTV and _resolve() counts and iterates it, so a flag parked in there
+    # would read as a second TV and break single-TV service calls.
+    if hass.data.get(CARD_REGISTERED):
+        return
+    hass.data[CARD_REGISTERED] = True
+
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                CARD_URL, str(Path(__file__).parent / "www" / CARD_FILE), False
+            )
+        ]
+    )
+    add_extra_js_url(hass, f"{CARD_URL}?v={CARD_VERSION}")
 
 
 def _async_register_services(hass: HomeAssistant) -> None:

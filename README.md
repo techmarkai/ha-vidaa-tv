@@ -28,6 +28,7 @@ never connect to them. This one talks to the TV the way the TV actually answers.
 | **Play media** | Launch an app, open a URL, switch input, or tune a channel |
 | **Media browser** | Browse apps, inputs and channels from HA's media browser |
 | **Remote** | Every key, via a `remote` entity — arbitrary keys accepted |
+| **Remote card** | A full handset laid out like the physical remote, installed with the integration |
 | **Text entry** | Type into TV search boxes and login fields |
 | **Channels** | Channel list and current channel, where the firmware provides them |
 | **Raw access** | Publish any MQTT message to the TV |
@@ -140,6 +141,34 @@ The keys in the `vidaa_tv.send_key` dropdown are the ones VIDAA remotes are
 known to send — see `KEYS` in `custom_components/vidaa_tv/const.py` for the
 canonical list. It is a starting point, **not** a whitelist: any string is
 passed straight through, so unlisted keys still work.
+
+## Remote card
+
+The integration ships a Lovelace card laid out after the Toshiba CT-8547 handset
+these TVs come with — keypad, direction pad, colour keys, transport controls,
+Netflix and YouTube.
+
+There is **no resource to add**. The integration serves the card itself, so it
+appears in the card picker after a restart:
+
+> **Edit dashboard → Add card → VIDAA TV Remote**
+
+Or in YAML:
+
+```yaml
+type: custom:vidaa-remote-card
+entity: remote.living_room_tv   # optional; the first VIDAA remote is used otherwise
+title: Living room              # optional
+```
+
+The card follows your dashboard's light and dark theme, and stays usable across
+the TV's periodic MQTT drops — buttons only grey out when the TV is genuinely
+unavailable, not during the few seconds it takes to reconnect.
+
+Five keys on the handset — teletext, apps, media, and the two skip-track
+buttons — have codes that are **not confirmed** on real hardware. This firmware
+ignores actions it does not implement, so if one of those buttons does nothing
+on your set, that is why. Reports welcome.
 
 ### Buttons
 
