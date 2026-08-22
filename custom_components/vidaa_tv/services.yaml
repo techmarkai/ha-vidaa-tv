@@ -117,8 +117,6 @@ send_key:
             - KEY_YOUTUBE
             - KEY_AMAZON
             - KEY_TEXT
-            - KEY_APPS
-            - KEY_MEDIA
             - KEY_PREVIOUS
             - KEY_NEXT
     entry_id:

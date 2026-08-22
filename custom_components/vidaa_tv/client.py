@@ -23,6 +23,7 @@ from .const import (
     DEFAULT_PORT,
     DISCONNECT_GRACE,
     LIVE_TV_MARKERS,
+    PUBLISH_WAIT,
     MQTT_PASSWORD,
     MQTT_USERNAME,
     OFF_STATE_MARKERS,
@@ -335,12 +336,32 @@ class VidaaTV:
         return f"/remoteapp/tv/{service}/{CLIENT_ID}/actions/{action}"
 
     def _publish(self, topic: str, payload: str = "") -> None:
-        """Publish and say so when it went nowhere.
+        """Publish, waiting out a reconnect first, and say so if it still fails.
 
-        Entities stay available while the TV is off, so without this a service
-        call against a sleeping TV succeeds silently and does nothing: at QoS 0
-        with no connection paho drops the message and only reports it here.
+        Entities stay available while the TV is off, so without the warning a
+        service call against a sleeping TV succeeds silently and does nothing:
+        at QoS 0 with no connection paho drops the message and only reports it
+        here.
+
+        The wait matters because this firmware ends the MQTT session about
+        every 271s and takes ~22s to let us back in -- roughly 7% of the time.
+        A press landing in that window used to be thrown away, which is felt as
+        buttons that randomly do nothing. Blocking here until the link returns
+        turns that into a press that is merely late. Callers are already on an
+        executor thread, so nothing on the event loop is held up.
         """
+        # Only wait when we have reason to think the TV is still there: a drop
+        # we are inside the grace for. A TV that is switched off, or was never
+        # reached, has link_ok False and must fail fast -- otherwise every key
+        # of a multi-key command, and all six queries of a refresh, would each
+        # sit here for the full timeout.
+        if not self.connected and self.link_ok:
+            deadline = time.monotonic() + PUBLISH_WAIT
+            while not self.connected and self.link_ok and time.monotonic() < deadline:
+                time.sleep(0.25)
+            if self.connected:
+                _LOGGER.debug("Held %s until the link came back", topic)
+
         result = self._client.publish(topic, payload)
         rc = getattr(result, "rc", mqtt.MQTT_ERR_SUCCESS)
         if rc != mqtt.MQTT_ERR_SUCCESS:

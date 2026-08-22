@@ -41,11 +41,13 @@ KEYS = (
     "KEY_RED", "KEY_GREEN", "KEY_YELLOW", "KEY_BLUE",
     "KEY_INFO", "KEY_SUBTITLE", "KEY_AUDIO", "KEY_SLEEP", "KEY_PICTURE", "KEY_SOUND",
     "KEY_NETFLIX", "KEY_YOUTUBE", "KEY_AMAZON",
-    # On the CT-8547 handset but never confirmed against a TV: the remote card
-    # draws them, and this firmware ignores actions it does not implement, so a
-    # wrong guess does nothing rather than erroring. Confirm before relying on
-    # them, and drop any that stay dead.
-    "KEY_TEXT", "KEY_APPS", "KEY_MEDIA", "KEY_PREVIOUS", "KEY_NEXT",
+    # On the CT-8547 handset, still unconfirmed. This firmware ignores actions
+    # it does not implement, so a wrong guess does nothing rather than erroring.
+    # Confirmed dead on the reference TV and removed: KEY_APPS, KEY_MEDIA.
+    # Also ignored there despite being listed above: KEY_PICTURE (P.MODE),
+    # KEY_SOUND (S.MODE), KEY_NETFLIX and KEY_YOUTUBE -- launch apps by name
+    # through the media player instead, which does work.
+    "KEY_TEXT", "KEY_PREVIOUS", "KEY_NEXT",
 )
 
 # The keys worth a dashboard button, as (key, display name, icon). A curated
@@ -85,3 +87,11 @@ SERVICES = ("remote_service", "ui_service", "platform_service")
 # a TV that was really switched off for long.
 # ponytail: fixed window, tune if your set drops for longer than this.
 DISCONNECT_GRACE = 60.0
+
+# How long a command waits for a reconnect before giving up. The TV refuses new
+# connections for ~17-22s after ending a session, so this has to clear that or
+# presses in the gap are still lost -- which is what "some buttons do nothing"
+# actually is. Long enough to cover the gap, short enough that a press against a
+# genuinely off TV still reports quickly.
+# ponytail: fixed wait, tune with DISCONNECT_GRACE if the firmware changes.
+PUBLISH_WAIT = 25.0

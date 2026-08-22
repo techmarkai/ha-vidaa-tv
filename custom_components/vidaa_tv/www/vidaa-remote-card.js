@@ -20,8 +20,10 @@ const GAP = { spacer: true };
 // null command = decorative label from the handset, not a button.
 const LAYOUT = [
   { cls: "row-2", keys: [KEY("⊸", "KEY_SOURCE", { title: "Source" }), KEY("⏻", "KEY_POWER", { cls: "power", title: "Power" })] },
-  { cls: "row-3", keys: [KEY("P.MODE", "KEY_PICTURE"), KEY("S.MODE", "KEY_SOUND"), KEY("i+", "KEY_INFO", { title: "Info" })] },
-  { cls: "row-3", keys: [KEY("APPS", "KEY_APPS"), KEY("MEDIA", "KEY_MEDIA"), KEY("TV", "KEY_TV")] },
+  // P.MODE, S.MODE, APPS and MEDIA are on the handset but the TV ignores their
+  // key codes, so they are not drawn -- a button that does nothing is worse
+  // than one that is absent.
+  { cls: "row-2", keys: [KEY("i+", "KEY_INFO", { title: "Info" }), KEY("TV", "KEY_TV")] },
   { cls: "row-3", keys: [KEY("1", "KEY_1", { cls: "num" }), KEY("2", "KEY_2", { cls: "num" }), KEY("3", "KEY_3", { cls: "num" })] },
   { cls: "row-3", keys: [KEY("4", "KEY_4", { cls: "num" }), KEY("5", "KEY_5", { cls: "num" }), KEY("6", "KEY_6", { cls: "num" })] },
   { cls: "row-3", keys: [KEY("7", "KEY_7", { cls: "num" }), KEY("8", "KEY_8", { cls: "num" }), KEY("9", "KEY_9", { cls: "num" })] },
@@ -50,7 +52,10 @@ const LAYOUT = [
       KEY("▮◀◀", "KEY_PREVIOUS", { title: "Previous" }), KEY("■", "KEY_STOP", { title: "Stop" }),
       KEY("▮▮", "KEY_PAUSE", { title: "Pause" }), KEY("▶▶▮", "KEY_NEXT", { title: "Next" }),
     ] },
-  { cls: "row-2", keys: [KEY("NETFLIX", "KEY_NETFLIX", { cls: "netflix" }), KEY("YouTube", "KEY_YOUTUBE", { cls: "youtube" })] },
+  { cls: "row-2", keys: [
+      KEY("NETFLIX", null, { cls: "netflix", app: "Netflix" }),
+      KEY("YouTube", null, { cls: "youtube", app: "YouTube" }),
+    ] },
 ];
 
 const STYLE = `
@@ -161,10 +166,11 @@ class VidaaRemoteCard extends HTMLElement {
         const button = document.createElement("button");
         button.className = key.cls || "";
         button.textContent = key.label;
-        const name = key.title || key.label || key.command;
+        const name = key.title || key.label || key.command || key.app;
         button.setAttribute("aria-label", name);
         button.title = name;
-        button.addEventListener("click", () => this._send(key.command));
+        button.addEventListener("click", () =>
+          key.app ? this._launch(key.app) : this._send(key.command));
         el.appendChild(button);
         this._buttons.push(button);
       }
@@ -175,6 +181,23 @@ class VidaaRemoteCard extends HTMLElement {
     card.appendChild(remote);
     this.shadowRoot.appendChild(card);
     this._built = true;
+  }
+
+  _mediaPlayerId() {
+    // Both entities are named after the same device, so the object id matches:
+    // remote.living_room -> media_player.living_room.
+    const id = (this._entityId() || "").replace(/^remote\./, "media_player.");
+    return this._hass && this._hass.states[id] ? id : null;
+  }
+
+  _launch(app) {
+    // The TV ignores KEY_NETFLIX and KEY_YOUTUBE, but it reports its installed
+    // apps, and selecting one by name launches it. Falls back to the key code
+    // on firmware that has no media player entity to ask.
+    const entity_id = this._mediaPlayerId();
+    if (!entity_id) return this._send(`KEY_${app.toUpperCase()}`);
+    this._hass.callService("media_player", "select_source", { entity_id, source: app });
+    this.dispatchEvent(new CustomEvent("haptic", { bubbles: true, composed: true, detail: "light" }));
   }
 
   _send(command) {
