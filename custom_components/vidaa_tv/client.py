@@ -12,12 +12,14 @@ import json
 import logging
 import socket
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 import paho.mqtt.client as mqtt
 
 from .const import (
+    DISCONNECT_GRACE,
     CLIENT_ID,
     DEFAULT_PORT,
     LIVE_TV_MARKERS,
@@ -127,13 +129,17 @@ class VidaaTV:
         self.device_info: dict = {}
         self.auth_failed = False
         self._last_connack_rc: int | None = None
+        # When the link went down while it had been up; None while connected.
+        self._dropped_at: float | None = None
 
         self._listeners: list[Callable[[], None]] = []
         self._client = _new_client(CLIENT_ID)
         self._client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-        # Flat 30s, no backoff: a TV switched back on appears within 30 seconds
-        # instead of waiting out a growing delay. One cheap LAN connect per 30s.
-        self._client.reconnect_delay_set(min_delay=30, max_delay=30)
+        # Backoff 1s -> 30s. paho resets the delay after every successful
+        # connect, so a transient blip on a live link is back in ~1s instead of
+        # showing the TV as off for a full 30 seconds, while a TV that is
+        # actually switched off still settles at one cheap LAN connect per 30s.
+        self._client.reconnect_delay_set(min_delay=1, max_delay=30)
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
@@ -141,9 +147,27 @@ class VidaaTV:
     # ---------------------------------------------------------------- state
 
     @property
+    def link_ok(self) -> bool:
+        """True while our view of the TV is still trustworthy.
+
+        This firmware closes the MQTT socket on its own every few minutes
+        (paho reports rc=7) even though the TV stays switched on, and paho
+        reconnects seconds later. Reporting the TV as off for that gap is what
+        made the entity look unstable, so a drop that follows a live
+        connection keeps the last known state for DISCONNECT_GRACE seconds.
+        A TV that was never up, or that has been down longer than the grace,
+        is genuinely unavailable.
+        """
+        if self.connected:
+            return True
+        if self._dropped_at is None or not self.state_type:
+            return False
+        return (time.monotonic() - self._dropped_at) < DISCONNECT_GRACE
+
+    @property
     def is_on(self) -> bool:
         state = (self.state_type or "").lower()
-        return self.connected and not any(m in state for m in OFF_STATE_MARKERS)
+        return self.link_ok and not any(m in state for m in OFF_STATE_MARKERS)
 
     @property
     def is_live_tv(self) -> bool:
@@ -205,12 +229,15 @@ class VidaaTV:
             return
         self._last_connack_rc = 0
         self.connected = True
+        self._dropped_at = None
         client.subscribe("/remoteapp/mobile/broadcast/#")
         client.subscribe(f"/remoteapp/mobile/{CLIENT_ID}/#")
         self.refresh()
         self._notify()
 
     def _on_disconnect(self, _client, _userdata, rc):
+        if self.connected:
+            self._dropped_at = time.monotonic()
         self.connected = False
         _LOGGER.debug("TV %s disconnected (rc=%s); paho will retry", self.host, rc)
         self._notify()

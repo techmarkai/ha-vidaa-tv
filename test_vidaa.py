@@ -39,6 +39,19 @@ class FakeHass:
     loop = FakeLoop()
 
 
+class FakeClient:
+    """Swallows subscribe/publish so _on_connect can run without a socket."""
+
+    def __init__(self):
+        self.published = []
+
+    def subscribe(self, *_a, **_k):
+        pass
+
+    def publish(self, topic, payload=None, *a, **k):
+        self.published.append((topic, payload))
+
+
 class Msg:
     def __init__(self, topic, payload):
         self.topic = topic
@@ -338,6 +351,29 @@ def main():
         f"  only in yaml: {sorted(set(dropdown) - set(const.KEYS))}\n"
         f"  only in KEYS: {sorted(set(const.KEYS) - set(dropdown))}"
     )
+
+    # A drop while the TV is on must not read as off: this firmware closes the
+    # MQTT socket every few minutes (rc=7) and paho is back seconds later.
+    flappy = client.VidaaTV(FakeHass(), "10.0.0.10")
+    flappy._client = fake = FakeClient()
+    flappy._on_connect(fake, None, None, 0)
+    flappy._on_message(None, None, Msg(
+        "/remoteapp/mobile/broadcast/ui_service/state",
+        b'{"statetype": "livetv", "channel_name": "Nat Geo"}'))
+    assert flappy.is_on, "should be on while connected"
+    flappy._on_disconnect(None, None, 7)
+    assert not flappy.connected, "the link is down"
+    assert flappy.is_on, "a fresh drop must keep the last known state"
+    assert flappy.current_name == "Nat Geo", "state must survive the gap"
+    flappy._dropped_at -= const.DISCONNECT_GRACE + 1
+    assert not flappy.is_on, "past the grace the TV is genuinely unavailable"
+    flappy._on_connect(fake, None, None, 0)
+    assert flappy._dropped_at is None and flappy.is_on, "reconnect clears the grace"
+
+    # A TV that never came up has no last state to hold on to.
+    never = client.VidaaTV(FakeHass(), "10.0.0.11")
+    never._on_disconnect(None, None, 7)
+    assert not never.is_on, "never-connected TV must stay off"
 
     print("all checks passed")
 

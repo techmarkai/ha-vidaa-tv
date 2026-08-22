@@ -124,13 +124,13 @@ class VidaaMediaPlayer(MediaPlayerEntity):
 
     @property
     def volume_level(self) -> float | None:
-        if not self._tv.connected or self._tv.volume is None:
+        if not self._tv.link_ok or self._tv.volume is None:
             return None
         return self._tv.volume / 100
 
     @property
     def is_volume_muted(self) -> bool:
-        return self._tv.connected and self._tv.muted
+        return self._tv.link_ok and self._tv.muted
 
     @property
     def source_list(self) -> list[str]:
@@ -140,7 +140,7 @@ class VidaaMediaPlayer(MediaPlayerEntity):
 
     @property
     def source(self) -> str | None:
-        return self._tv.current_name if self._tv.connected else None
+        return self._tv.current_name if self._tv.link_ok else None
 
     # -------------------------------------------------------------- commands
 

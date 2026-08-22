@@ -73,3 +73,10 @@ BUTTONS = (
 
 # Service names used in the /remoteapp/tv/<service>/... topic tree.
 SERVICES = ("remote_service", "ui_service", "platform_service")
+
+# Seconds to keep reporting the last known state after the TV closes the MQTT
+# socket. This firmware drops the link every few minutes while still switched
+# on and paho is back within seconds; the grace covers that gap without hiding
+# a TV that was really switched off for long.
+# ponytail: fixed window, tune if your set drops for longer than this.
+DISCONNECT_GRACE = 60.0
