@@ -19,9 +19,9 @@ from concurrent.futures import ThreadPoolExecutor
 import paho.mqtt.client as mqtt
 
 from .const import (
-    DISCONNECT_GRACE,
     CLIENT_ID,
     DEFAULT_PORT,
+    DISCONNECT_GRACE,
     LIVE_TV_MARKERS,
     MQTT_PASSWORD,
     MQTT_USERNAME,
@@ -48,6 +48,16 @@ def _new_client(client_id: str) -> mqtt.Client:
     return mqtt.Client(
         CallbackAPIVersion.VERSION1, client_id=client_id, protocol=mqtt.MQTTv311
     )
+
+
+def clean_mac(mac: str | None) -> str:
+    """Bare lowercase hex, so "10:C7:53:8E:B3:86" and "10c7538eb386" compare equal.
+
+    Discovery hands the MAC over in whichever shape the source used, so every
+    comparison has to go through here or a TV that changed address is treated
+    as a new device.
+    """
+    return "".join(c for c in (mac or "").lower() if c in "0123456789abcdef")
 
 
 def scan(hosts: list[str], port: int = DEFAULT_PORT, timeout: float = 1.0) -> list[str]:
@@ -131,6 +141,11 @@ class VidaaTV:
         self._last_connack_rc: int | None = None
         # When the link went down while it had been up; None while connected.
         self._dropped_at: float | None = None
+        # Diagnostics only: how many times this client has come up, and how
+        # long the last outage lasted. Without these the log shows drops but
+        # never recoveries, so a slow reconnect looks identical to a fast one.
+        self._connects = 0
+        self.last_downtime: float | None = None
 
         self._listeners: list[Callable[[], None]] = []
         self._client = _new_client(CLIENT_ID)
@@ -229,6 +244,18 @@ class VidaaTV:
             return
         self._last_connack_rc = 0
         self.connected = True
+        self._connects += 1
+        if self._dropped_at is not None:
+            self.last_downtime = time.monotonic() - self._dropped_at
+            # INFO, not DEBUG: this is the line that proves a drop recovered,
+            # and how fast. One line per outage on a TV that drops every few
+            # minutes is a handful an hour, not noise.
+            _LOGGER.info(
+                "TV %s reconnected after %.1fs down (connection #%s)",
+                self.host, self.last_downtime, self._connects,
+            )
+        else:
+            _LOGGER.info("TV %s connected (connection #%s)", self.host, self._connects)
         self._dropped_at = None
         client.subscribe("/remoteapp/mobile/broadcast/#")
         client.subscribe(f"/remoteapp/mobile/{CLIENT_ID}/#")
@@ -239,7 +266,13 @@ class VidaaTV:
         if self.connected:
             self._dropped_at = time.monotonic()
         self.connected = False
-        _LOGGER.debug("TV %s disconnected (rc=%s); paho will retry", self.host, rc)
+        # rc=7 is this firmware ending the session on its own roughly every
+        # 300s; rc=16 would be a keepalive timeout and rc=0 a clean local
+        # disconnect. Naming it here saves looking the number up later.
+        _LOGGER.info(
+            "TV %s disconnected: %s (rc=%s); reconnecting",
+            self.host, mqtt.error_string(rc), rc,
+        )
         self._notify()
 
     def _on_message(self, _client, _userdata, msg):

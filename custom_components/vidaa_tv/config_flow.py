@@ -12,7 +12,7 @@ from homeassistant.components import network
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 
-from .client import VidaaAuthError, VidaaError, scan, test_connection
+from .client import VidaaAuthError, VidaaError, clean_mac, scan, test_connection
 from .const import CONF_MAC, DEFAULT_NAME, DEFAULT_PORT, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,12 +44,40 @@ class VidaaConfigFlow(ConfigFlow, domain=DOMAIN):
 
     # ------------------------------------------------------------ discovery
 
+    def _entry_for_mac(self, mac: str | None):
+        """An already-configured entry for this MAC, whatever its address."""
+        if not (wanted := clean_mac(mac)):
+            return None
+        for entry in self._async_current_entries():
+            if clean_mac(entry.data.get(CONF_MAC)) == wanted:
+                return entry
+        return None
+
     async def async_step_dhcp(self, discovery_info: Any) -> ConfigFlowResult:
         """A device matching a VIDAA MAC prefix appeared on the network."""
         self._host = discovery_info.ip
         self._mac = discovery_info.macaddress
         if hostname := getattr(discovery_info, "hostname", None):
             self._name = hostname
+
+        # Match on the MAC first. The unique id is "<host>:<port>", so a TV
+        # that took a new address from DHCP would otherwise look like a new
+        # device and be set up a second time -- two config entries, two MQTT
+        # clients sharing one hardcoded client id, evicting each other from the
+        # broker. Following the MAC re-points the existing entry instead.
+        if existing := self._entry_for_mac(self._mac):
+            if existing.data.get(CONF_HOST) != self._host:
+                _LOGGER.info(
+                    "VIDAA TV %s moved to %s; updating the existing entry",
+                    existing.data.get(CONF_HOST), self._host,
+                )
+                self.hass.config_entries.async_update_entry(
+                    existing,
+                    data={**existing.data, CONF_HOST: self._host},
+                    unique_id=f"{self._host}:{DEFAULT_PORT}",
+                )
+                self.hass.config_entries.async_schedule_reload(existing.entry_id)
+            return self.async_abort(reason="already_configured")
 
         await self.async_set_unique_id(f"{self._host}:{DEFAULT_PORT}")
         self._abort_if_unique_id_configured(updates={CONF_HOST: self._host})

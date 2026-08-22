@@ -375,6 +375,14 @@ def main():
     never._on_disconnect(None, None, 7)
     assert not never.is_on, "never-connected TV must stay off"
 
+    # Discovery compares MACs from different sources; a TV that took a new
+    # DHCP address must still match its existing entry rather than be set up
+    # twice (two entries would mean two MQTT clients sharing one client id).
+    assert client.clean_mac("10:C7:53:8E:B3:86") == "10c7538eb386"
+    assert client.clean_mac("10-c7-53-8e-b3-86") == "10c7538eb386"
+    assert client.clean_mac("10C7538EB386") == "10c7538eb386"
+    assert client.clean_mac(None) == "" and client.clean_mac("") == ""
+
     print("all checks passed")
 
 
