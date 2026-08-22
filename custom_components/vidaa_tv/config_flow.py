@@ -116,7 +116,7 @@ class VidaaConfigFlow(ConfigFlow, domain=DOMAIN):
         try:
             candidates = await self._async_candidate_hosts()
             found = await self.hass.async_add_executor_job(scan, candidates)
-        except Exception:  # noqa: BLE001 - scanning must never block manual setup
+        except Exception:  # scanning must never block manual setup
             _LOGGER.exception("VIDAA scan failed; falling back to manual entry")
             found = []
 

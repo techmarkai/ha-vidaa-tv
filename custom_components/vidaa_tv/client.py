@@ -141,11 +141,9 @@ class VidaaTV:
         self._last_connack_rc: int | None = None
         # When the link went down while it had been up; None while connected.
         self._dropped_at: float | None = None
-        # Diagnostics only: how many times this client has come up, and how
-        # long the last outage lasted. Without these the log shows drops but
-        # never recoveries, so a slow reconnect looks identical to a fast one.
+        # Diagnostics only: without a count the log shows drops but never
+        # recoveries, so a slow reconnect looks identical to a fast one.
         self._connects = 0
-        self.last_downtime: float | None = None
 
         self._listeners: list[Callable[[], None]] = []
         self._client = _new_client(CLIENT_ID)
@@ -252,13 +250,12 @@ class VidaaTV:
         self.connected = True
         self._connects += 1
         if self._dropped_at is not None:
-            self.last_downtime = time.monotonic() - self._dropped_at
             # INFO, not DEBUG: this is the line that proves a drop recovered,
             # and how fast. One line per outage on a TV that drops every few
             # minutes is a handful an hour, not noise.
             _LOGGER.info(
                 "TV %s reconnected after %.1fs down (connection #%s)",
-                self.host, self.last_downtime, self._connects,
+                self.host, time.monotonic() - self._dropped_at, self._connects,
             )
         else:
             _LOGGER.info("TV %s connected (connection #%s)", self.host, self._connects)
