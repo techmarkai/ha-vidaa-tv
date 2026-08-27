@@ -338,6 +338,16 @@ updating — the card is registered during setup. Then hard-refresh the browser
 (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>); the old page
 caches the script list. You do **not** need to add a Lovelace resource.
 
+**The card shows in a browser but not in the companion app.** The integration
+injects the card into the frontend index page, and the app's WebView does not
+always re-fetch that page — clearing the app cache often does not help. Add the
+card as a Lovelace resource as well, which the app *does* re-fetch on connect:
+
+> **Settings → Dashboards → ⋮ → Resources → Add resource**, URL
+> `/vidaa_tv/vidaa-remote-card.js?v=2.6.2`, type **JavaScript module**
+
+Loading it twice is safe; the card only registers itself once.
+
 **One card button does nothing.** Most likely one of the five unverified keys
 (teletext, apps, media, skip back, skip forward). The TV silently ignores key
 codes it does not implement. Please open an issue saying which TV model, so the

@@ -247,21 +247,26 @@ class VidaaRemoteCompactCard extends VidaaRemoteCard {
   }
 }
 
-customElements.define("vidaa-remote-card", VidaaRemoteCard);
-customElements.define("vidaa-remote-compact-card", VidaaRemoteCompactCard);
+// Guarded: the integration injects this module itself, but the companion app's
+// WebView often misses that injection, so users also add it as a Lovelace
+// resource. Both paths loading is normal -- a bare define() would throw.
+if (!customElements.get("vidaa-remote-card")) {
+  customElements.define("vidaa-remote-card", VidaaRemoteCard);
+  customElements.define("vidaa-remote-compact-card", VidaaRemoteCompactCard);
 
-window.customCards = window.customCards || [];
-window.customCards.push(
-  {
-    type: "vidaa-remote-card",
-    name: "VIDAA TV Remote",
-    description: "The full handset layout for a Hisense/Toshiba VIDAA TV.",
-    preview: true,
-  },
-  {
-    type: "vidaa-remote-compact-card",
-    name: "VIDAA TV Remote (compact)",
-    description: "The everyday controls only — about half the height.",
-    preview: true,
-  },
-);
+  window.customCards = window.customCards || [];
+  window.customCards.push(
+    {
+      type: "vidaa-remote-card",
+      name: "VIDAA TV Remote",
+      description: "The full handset layout for a Hisense/Toshiba VIDAA TV.",
+      preview: true,
+    },
+    {
+      type: "vidaa-remote-compact-card",
+      name: "VIDAA TV Remote (compact)",
+      description: "The everyday controls only — about half the height.",
+      preview: true,
+    },
+  );
+}
